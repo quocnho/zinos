@@ -23,20 +23,6 @@ modules:
     scripts:
       - 01-install-packages.sh
 
-  - type: dnf
-    remove:
-      packages:
-        - firefox
-        - firefox-langpacks
-
-  - type: dnf
-    install:
-      packages:
-        - akmod-nvidia
-        - xorg-x11-drv-nvidia-cuda
-        - nvidia-vaapi-driver
-        - nvidia-persistenced
-
   - type: script
     scripts:
       - 03-nvidia-setup.sh
@@ -51,10 +37,5 @@ modules:
         notify: true
         install:
           - org.mozilla.firefox
-          - com.system76.CosmicStore
-          - com.system76.CosmicTerminal
-          - com.system76.CosmicFiles
-          - com.system76.CosmicSettings
-          - com.system76.CosmicAppLibrary
 
   - type: signing

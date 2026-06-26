@@ -23,24 +23,6 @@ modules:
     scripts:
       - 01-install-packages.sh
 
-  - type: dnf
-    remove:
-      packages:
-        - firefox
-        - firefox-langpacks
-    install:
-      packages:
-        - nautilus-gsconnect
-        - gnome-tweaks
-
-  - type: dnf
-    install:
-      packages:
-        - akmod-nvidia
-        - xorg-x11-drv-nvidia-cuda
-        - nvidia-vaapi-driver
-        - nvidia-persistenced
-
   - type: script
     scripts:
       - 03-nvidia-setup.sh
@@ -55,10 +37,5 @@ modules:
         notify: true
         install:
           - org.mozilla.firefox
-          - org.gnome.Loupe
-          - org.gnome.Calculator
-          - org.gnome.baobab
-          - org.gnome.Characters
-          - org.gnome.clocks
 
   - type: signing

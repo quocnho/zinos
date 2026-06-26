@@ -1,0 +1,72 @@
+rows:
+  - sections:
+    - expand-horizontally: true
+      category:
+        title:
+          en: "Gaming"
+        subtitle:
+          en: "Native & emulated gaming"
+        appids:
+          - net.lutris.Lutris
+          - com.heroicgameslauncher.hgl
+          - org.prismlauncher.PrismLauncher
+          - net.retrodeck.retrodeck
+          - org.libretro.RetroArch
+          - org.DolphinEmu.dolphin-emu
+          - net.pcsx2.PCSX2
+          - net.rpcs3.RPCS3
+
+  - sections:
+    - expand-horizontally: true
+      category:
+        title:
+          en: "Social & Communication"
+        subtitle:
+          en: "Stay connected"
+        appids:
+          - com.discordapp.Discord
+          - dev.vencord.Vesktop
+          - org.mozilla.Thunderbird
+          - com.slack.Slack
+
+  - sections:
+    - expand-horizontally: true
+      category:
+        title:
+          en: "Productivity"
+        subtitle:
+          en: "Get things done"
+        appids:
+          - org.libreoffice.LibreOffice
+          - org.gimp.GIMP
+          - org.inkscape.Inkscape
+          - org.blender.Blender
+          - md.obsidian.Obsidian
+
+  - sections:
+    - expand-horizontally: true
+      category:
+        title:
+          en: "Media & Creativity"
+        subtitle:
+          en: "Music, video & art"
+        appids:
+          - org.videolan.VLC
+          - org.audacityteam.Audacity
+          - org.kde.krita
+          - org.gnome.Loupe
+
+  - sections:
+    - expand-horizontally: true
+      category:
+        title:
+          en: "Utilities"
+        subtitle:
+          en: "Essential tools"
+        appids:
+          - org.keepassxc.KeePassXC
+          - com.bitwarden.desktop
+          - org.qbittorrent.qBittorrent
+          - org.fedoraproject.MediaWriter
+          - it.mijorus.gearlever
+          - io.github.flattool.Ignition

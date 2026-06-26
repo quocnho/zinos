@@ -20,6 +20,11 @@ dnf5 -y install \
 # Disabled by default; uncomment to enable RakuOS software center & welcome app
 dnf5 -y copr enable tohur/RakuOS fedora-${FEDORA_VERSION}-x86_64 2>/dev/null || true
 
+# ublue-os repos (for bazaar, packages, and useful tools)
+for copr in ublue-os/bazzite ublue-os/packages; do
+    dnf5 -y copr enable "$copr" fedora-${FEDORA_VERSION}-x86_64 2>/dev/null || true
+done
+
 # CachyOS repos
 for copr in bieszczaders/kernel-cachyos bieszczaders/kernel-cachyos-addons; do
     dnf5 -y copr enable "$copr" fedora-${FEDORA_VERSION}-x86_64

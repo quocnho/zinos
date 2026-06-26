@@ -22,6 +22,7 @@ concurrency:
 
 env:
   IMAGE_REGISTRY: ghcr.io/quocnho
+  R2_PUBLIC_URL: https://download.bamos.info # Custom domain
 
 jobs:
   # ── Job 1: Build & push 6 container images ───────────────────────────────────
@@ -141,6 +142,7 @@ jobs:
             echo "status=success" >> "$GITHUB_OUTPUT"
             echo "title=✅ BamOS Build Thành Công" >> "$GITHUB_OUTPUT"
             echo "msg=Chúc mừng! BamOS đã build và release thành công." >> "$GITHUB_OUTPUT"
+            echo "iso_success=true" >> "$GITHUB_OUTPUT"
           elif [[ "$IMAGES_STATUS" == "success" && "$ISO_STATUS" == "skipped" ]]; then
             echo "status=success" >> "$GITHUB_OUTPUT"
             echo "title=✅ BamOS Images Build Thành Công" >> "$GITHUB_OUTPUT"
@@ -171,7 +173,9 @@ jobs:
             🔗 Commit: ${{ github.sha }}
             🔗 Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-            ${{ needs.build-isos.result == 'success' && format('📥 Tải ISOs: https://github.com/{0}/releases', github.repository) || '' }}
+            ${{ needs.build-isos.result == 'success' && format('📥 Tải ISOs:
+            - ☁️ Cloudflare R2: {0}
+            - 🐙 GitHub Releases: https://github.com/{1}/releases/tag/nightly-{2}', env.R2_PUBLIC_URL, github.repository, github.run_id) || '' }}
 
             ---
             BamOS CI - Build tự động
@@ -195,6 +199,7 @@ jobs:
         run: |
           echo "### Danh sách ISO" > /tmp/iso-list.txt
           echo "" >> /tmp/iso-list.txt
+          EDITIONS=()
           TOTAL=0
           for f in iso-artifacts/*.iso; do
             NAME=$(basename "$f" .iso)
@@ -202,6 +207,7 @@ jobs:
             BYTES=$(ls -l "$f" | awk '{print $5}')
             TOTAL=$((TOTAL + BYTES))
             echo "- **${NAME}** → ${SIZE}" >> /tmp/iso-list.txt
+            EDITIONS+=("$f")
           done
           TOTAL_HR=$(numfmt --to=iec $TOTAL 2>/dev/null || echo "${TOTAL} bytes")
           echo "" >> /tmp/iso-list.txt
@@ -210,24 +216,6 @@ jobs:
           cat /tmp/iso-list.txt >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
           echo "total=$TOTAL_HR" >> "$GITHUB_OUTPUT"
-
-      - name: Upload to Cloudflare R2
-        env:
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-        run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq rclone
-          rclone config create r2 s3 \
-            provider Cloudflare \
-            access_key_id $R2_ACCESS_KEY_ID \
-            secret_access_key $R2_SECRET_ACCESS_KEY \
-            region auto \
-            endpoint $R2_ENDPOINT
-          rclone delete r2:bamos-iso --include "*.iso" --verbose
-          rclone delete r2:bamos-iso --include "CHECKSUM-*.txt" --verbose 2>/dev/null || true
-          rclone copy iso-artifacts r2:bamos-iso --verbose
-          echo "All ISOs uploaded to Cloudflare R2."
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -248,6 +236,44 @@ jobs:
           prerelease: true
           make_latest: true
 
+      - name: Upload to Cloudflare R2
+        id: r2-upload
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq rclone
+          rclone config create r2 s3 \
+            provider Cloudflare \
+            access_key_id $R2_ACCESS_KEY_ID \
+            secret_access_key $R2_SECRET_ACCESS_KEY \
+            region auto \
+            endpoint $R2_ENDPOINT
+          rclone delete r2:bamos-iso --include "*.iso" --verbose
+          rclone delete r2:bamos-iso --include "CHECKSUM-*.txt" --verbose 2>/dev/null || true
+          rclone copy iso-artifacts r2:bamos-iso --verbose
+          echo "All ISOs uploaded to Cloudflare R2."
+          echo "r2_public_url=${{ env.R2_PUBLIC_URL }}" >> "$GITHUB_OUTPUT"
+
+      - name: Create latest ISO aliases on R2
+        run: |
+          # Copy each ISO to a stable "latest" filename for direct download links
+          for f in iso-artifacts/*.iso; do
+            BASENAME=$(basename "$f" .iso)
+            EDITION=$(echo "$BASENAME" | sed 's/-nightly-.*//' | tr '[:upper:]' '[:lower:]')
+            LATEST_NAME="${EDITION}-latest.iso"
+            echo "Creating alias: $LATEST_NAME → $(basename $f)"
+            rclone copyto "$f" "r2:bamos-iso/$LATEST_NAME" --verbose
+          done
+          # Also copy checksums
+          for f in iso-artifacts/CHECKSUM-*.txt; do
+            BASENAME=$(basename "$f" .txt)
+            LATEST_NAME="${BASENAME}-latest.txt"
+            rclone copyto "$f" "r2:bamos-iso/$LATEST_NAME" --verbose
+          done
+          echo "All latest aliases created."
+
       - name: Send ISO release email (thành công)
         if: success()
         uses: dawidd6/action-send-mail@v4
@@ -267,8 +293,9 @@ jobs:
             ${{ steps.iso-info.outputs.list }}
 
             📥 Tải xuống:
-            - GitHub Releases: https://github.com/${{ github.repository }}/releases/tag/nightly-${{ github.run_id }}
-            - Tất cả Releases: https://github.com/${{ github.repository }}/releases
+            - ☁️ Cloudflare R2: ${{ steps.r2-upload.outputs.r2_public_url }}
+            - 🐙 GitHub Releases: https://github.com/${{ github.repository }}/releases/tag/nightly-${{ github.run_id }}
+            - 📂 Tất cả Releases: https://github.com/${{ github.repository }}/releases
 
             🔗 Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 

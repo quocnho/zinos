@@ -50,17 +50,29 @@ test-cosmic:
 
 # ── ISO ───────────────────────────────────────────────────────────────────────
 
-# Generate ISO cho KDE
+# Generate ISO cho KDE (AMD/Intel)
 iso-kde:
     sudo bluebuild generate-iso --iso-name "BamOS-KDE-{{date}}.iso" image localhost/bamos-kde:latest
 
-# Generate ISO cho GNOME
+# Generate ISO cho KDE NVIDIA
+iso-kde-nvidia:
+    sudo bluebuild generate-iso --iso-name "BamOS-KDE-NVIDIA-{{date}}.iso" image localhost/bamos-kde-nvidia:latest
+
+# Generate ISO cho GNOME (AMD/Intel)
 iso-gnome:
     sudo bluebuild generate-iso --iso-name "BamOS-GNOME-{{date}}.iso" image localhost/bamos-gnome:latest
 
-# Generate ISO cho COSMIC
+# Generate ISO cho GNOME NVIDIA
+iso-gnome-nvidia:
+    sudo bluebuild generate-iso --iso-name "BamOS-GNOME-NVIDIA-{{date}}.iso" image localhost/bamos-gnome-nvidia:latest
+
+# Generate ISO cho COSMIC (AMD/Intel)
 iso-cosmic:
     sudo bluebuild generate-iso --iso-name "BamOS-COSMIC-{{date}}.iso" image localhost/bamos-cosmic:latest
+
+# Generate ISO cho COSMIC NVIDIA
+iso-cosmic-nvidia:
+    sudo bluebuild generate-iso --iso-name "BamOS-COSMIC-NVIDIA-{{date}}.iso" image localhost/bamos-cosmic-nvidia:latest
 
 # ── VM ────────────────────────────────────────────────────────────────────────
 

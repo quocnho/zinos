@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
+<wallpapers>
+  <wallpaper deleted="false">
+    <name>BamOS Default</name>
+    <filename>/usr/share/backgrounds/bamos/bamos.png</filename>
+    <options>zoom</options>
+    <pcolor>#004d40</pcolor>
+    <scolor>#1a237e</scolor>
+  </wallpaper>
+  <wallpaper deleted="false">
+    <name>BamOS Dark</name>
+    <filename>/usr/share/backgrounds/bamos/bamos-dark.png</filename>
+    <options>zoom</options>
+    <pcolor>#002a27</pcolor>
+    <scolor>#0d1b2a</scolor>
+  </wallpaper>
+</wallpapers>

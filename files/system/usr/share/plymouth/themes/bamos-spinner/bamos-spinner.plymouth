@@ -1,0 +1,4 @@
+[Plymouth Theme]
+Name=BamOS Spinner
+Description=BamOS boot splash with spinner
+ModuleName=script

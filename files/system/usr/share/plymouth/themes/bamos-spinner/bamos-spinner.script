@@ -1,0 +1,3 @@
+[script]
+ImageDir=/usr/share/plymouth/themes/bamos-spinner
+ScriptFile=/usr/share/plymouth/themes/bamos-spinner/bamos-spinner.script

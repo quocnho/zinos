@@ -1,0 +1,16 @@
+{
+  "KPlugin": {
+    "Id": "bamos",
+    "Name": "BamOS",
+    "Description": "BamOS Default Wallpaper",
+    "ServiceTypes": ["Plasma/Wallpaper"],
+    "Version": "1.0",
+    "License": "GPL-3.0",
+    "Authors": [
+      {
+        "Name": "BamOS Team",
+        "Email": ""
+      }
+    ]
+  }
+}

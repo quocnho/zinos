@@ -16,6 +16,10 @@ dnf5 -y install \
     https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VERSION}.noarch.rpm \
     https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VERSION}.noarch.rpm
 
+# RakuOS COPR (for rakuos-software, rakuos-welcome — rebranded as bamos in future)
+# Disabled by default; uncomment to enable RakuOS software center & welcome app
+dnf5 -y copr enable tohur/RakuOS fedora-${FEDORA_VERSION}-x86_64 2>/dev/null || true
+
 # CachyOS repos
 for copr in bieszczaders/kernel-cachyos bieszczaders/kernel-cachyos-addons; do
     dnf5 -y copr enable "$copr" fedora-${FEDORA_VERSION}-x86_64
@@ -60,7 +64,9 @@ dnf5 -y install \
     sqlite3 openssl libnotify inotify-tools podman-compose \
     python3-pip python3-setuptools \
     appstream appstream-data fwupd \
-    fuse squashfuse v4l-utils unzip
+    fuse squashfuse v4l-utils unzip \
+    google-noto-sans-cjk-fonts google-noto-sans-mono-cjk-vf-fonts \
+    bibata-cursor-theme adw-gtk3-theme
 
 # ── Remove unwanted packages ──────────────────────────────────────────────────
 dnf5 -y remove firefox* nss 2>/dev/null || true

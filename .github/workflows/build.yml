@@ -6,11 +6,9 @@ on:
   push:
     branches: [main, develop]
     paths-ignore:
-      - "**.md"
-      - "editions/**"
-      - "AGENTS.md"
-      - "DEVELOPMENT.md"
+      - "docs/**"
       - "README.md"
+      - "LICENSE"
       - ".github/ISSUE_TEMPLATE/**"
   pull_request:
   workflow_dispatch:

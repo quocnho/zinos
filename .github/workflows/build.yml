@@ -1,4 +1,5 @@
 name: Build BamOS
+
 on:
   schedule:
     - cron: "00 06 * * *"
@@ -8,11 +9,23 @@ on:
       - "**.md"
   pull_request:
   workflow_dispatch:
+    inputs:
+      build_iso:
+        description: "Generate ISOs after build"
+        type: boolean
+        default: false
+        required: false
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
   cancel-in-progress: true
+
+env:
+  IMAGE_REGISTRY: ghcr.io/quocnho
+
 jobs:
-  bluebuild:
+  # ── Job 1: Build & push 6 container images ───────────────────────────────────
+  build-images:
     name: Build ${{ matrix.recipe }}
     runs-on: ubuntu-latest
     permissions:
@@ -39,3 +52,102 @@ jobs:
           registry_token: ${{ github.token }}
           pr_event_number: ${{ github.event.number }}
           maximize_build_space: true
+
+  # ── Job 2: Generate ISOs (only on main or manual dispatch) ──────────────────
+  build-isos:
+    if: >
+      (github.ref_name == 'main' && github.event_name != 'pull_request') ||
+      (github.event_name == 'workflow_dispatch' && inputs.build_iso == 'true')
+    needs: build-images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        edition:
+          - name: bamos-kde
+            iso-label: BamOS-KDE
+          - name: bamos-kde-nvidia
+            iso-label: BamOS-KDE-NVIDIA
+          - name: bamos-gnome
+            iso-label: BamOS-GNOME
+          - name: bamos-gnome-nvidia
+            iso-label: BamOS-GNOME-NVIDIA
+          - name: bamos-cosmic
+            iso-label: BamOS-COSMIC
+          - name: bamos-cosmic-nvidia
+            iso-label: BamOS-COSMIC-NVIDIA
+    steps:
+      - name: Maximize build space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be
+        with:
+          tool-cache: false
+
+      - name: Set lower-case registry
+        id: registry
+        run: echo "lowercase=${IMAGE_REGISTRY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate ISO with Titanoboa
+        uses: Zeglius/titanoboa@revamp-pr
+        with:
+          image-ref: ${{ steps.registry.outputs.lowercase }}/${{ matrix.edition.name }}:latest
+          livesys: "true"
+          compression: squashfs
+          iso-dest: ${{ github.workspace }}/${{ matrix.edition.iso-label }}-${{ github.ref_name }}-amd64.iso
+
+      - name: Generate checksum
+        run: |
+          cd ${{ github.workspace }}
+          sha256sum *.iso | tee CHECKSUM-${{ matrix.edition.iso-label }}.txt
+
+      - name: Upload ISO as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.edition.iso-label }}-iso
+          path: |
+            ${{ github.workspace }}/${{ matrix.edition.iso-label }}-*.iso
+            ${{ github.workspace }}/CHECKSUM-${{ matrix.edition.iso-label }}.txt
+          retention-days: 7
+          compression-level: 0
+
+  # ── Job 3: Create GitHub Release with all ISOs (main branch only) ──────────
+  release:
+    if: github.ref_name == 'main' && github.event_name != 'pull_request'
+    needs: build-isos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all ISO artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: iso-artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly-${{ github.run_id }}
+          name: "BamOS Nightly ($(date +%Y-%m-%d))"
+          body: |
+            ## BamOS Nightly Build
+
+            Automated build from commit ${{ github.sha }}
+
+            ### Editions:
+            - BamOS KDE
+            - BamOS KDE NVIDIA
+            - BamOS GNOME
+            - BamOS GNOME NVIDIA
+            - BamOS COSMIC
+            - BamOS COSMIC NVIDIA
+
+            > ⚠️ Nightly builds may contain unstable changes.
+          files: iso-artifacts/*
+          prerelease: true
+          make_latest: true

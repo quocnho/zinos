@@ -2,7 +2,8 @@ name: Build BamOS
 
 on:
   schedule:
-    - cron: "00 06 * * *"
+    # 17:00 UTC = 00:00 GMT+7, Thứ 5 → Thứ 6
+    - cron: "00 17 * * 4"
   push:
     branches: [main, develop]
     paths-ignore:
@@ -56,7 +57,7 @@ jobs:
   # ── Job 2: Generate ISOs (only on main or manual dispatch) ──────────────────
   build-isos:
     if: >
-      (github.ref_name == 'main' && github.event_name != 'pull_request') ||
+      (github.event_name == 'schedule') ||
       (github.event_name == 'workflow_dispatch' && inputs.build_iso == 'true')
     needs: build-images
     runs-on: ubuntu-latest
@@ -117,7 +118,7 @@ jobs:
 
   # ── Job 3: Release to GitHub Releases + Cloudflare R2 ───────────────────
   release:
-    if: github.ref_name == 'main' && github.event_name != 'pull_request'
+    if: always() && needs.build-isos.result == 'success'
     needs: build-isos
     runs-on: ubuntu-latest
     permissions:

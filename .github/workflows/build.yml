@@ -54,7 +54,7 @@ jobs:
           pr_event_number: ${{ github.event.number }}
           maximize_build_space: true
 
-  # ── Job 2: Generate ISOs (only on main or manual dispatch) ──────────────────
+  # ── Job 2: Generate ISOs (weekly or manual) ─────────────────────────────────
   build-isos:
     if: >
       (github.event_name == 'schedule') ||
@@ -116,7 +116,38 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-  # ── Job 3: Release to GitHub Releases + Cloudflare R2 ───────────────────
+  # ── Job 3: Notify build status via email ──────────────────────────────────
+  notify:
+    if: always() && github.event_name == 'schedule'
+    needs: [build-images, build-isos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send build summary email
+        uses: dawidd6/action-send-mail@v4
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "BamOS Build - Images: ${{ needs.build-images.result }} / ISO: ${{ needs.build-isos.result }}"
+          to: quocnho@gmail.com
+          from: BamOS CI
+          body: |
+            BamOS Weekly Build Report
+
+            Images (GHCR): ${{ needs.build-images.result }}
+            ISOs (R2 + Release): ${{ needs.build-isos.result }}
+
+            Commit: ${{ github.sha }}
+            Run: ${{ github.run_id }}
+
+            Downloads: https://github.com/${{ github.repository }}/releases
+            Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ---
+            BamOS CI
+
+  # ── Job 4: Release to GitHub Releases + Cloudflare R2 ───────────────────
   release:
     if: always() && needs.build-isos.result == 'success'
     needs: build-isos
@@ -130,7 +161,7 @@ jobs:
           path: iso-artifacts
           merge-multiple: true
 
-      - name: Upload to Cloudflare R2 (xoá cũ, upload mới)
+      - name: Upload to Cloudflare R2
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -144,15 +175,10 @@ jobs:
             region auto \
             endpoint $R2_ENDPOINT
 
-          # Xoá toàn bộ ISOs + checksums cũ
-          echo "=== Deleting old files from R2 ==="
           rclone delete r2:bamos-iso --include "*.iso" --verbose
           rclone delete r2:bamos-iso --include "CHECKSUM-*.txt" --verbose 2>/dev/null || true
-
-          # Upload 6 ISOs mới
-          echo "=== Uploading new ISOs to R2 ==="
           rclone copy iso-artifacts r2:bamos-iso --verbose
-          echo "✅ All 6 ISOs uploaded to Cloudflare R2."
+          echo "All ISOs uploaded to Cloudflare R2."
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -176,3 +202,25 @@ jobs:
           files: iso-artifacts/*
           prerelease: true
           make_latest: true
+
+      - name: Send ISO release email
+        if: success()
+        uses: dawidd6/action-send-mail@v4
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "BamOS ISOs Ready - ${{ github.run_id }}"
+          to: quocnho@gmail.com
+          from: BamOS CI
+          body: |
+            BamOS ISOs are ready!
+
+            All 6 editions built and uploaded.
+
+            Download: https://github.com/${{ github.repository }}/releases/tag/nightly-${{ github.run_id }}
+            Browse all: https://github.com/${{ github.repository }}/releases
+
+            ---
+            BamOS CI

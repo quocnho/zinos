@@ -99,12 +99,18 @@ jobs:
         id: registry
         run: echo "lowercase=${IMAGE_REGISTRY,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ github.token }}
+      - name: Login to GHCR (podman)
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          # Titanoboa uses sudo podman internally, login at system level
+          echo "$GHCR_TOKEN" | sudo podman login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+
+      - name: Pull image for Titanoboa
+        run: |
+          IMG="${{ steps.registry.outputs.lowercase }}/${{ matrix.edition.name }}:latest"
+          echo "Pulling $IMG into podman storage..."
+          sudo podman pull "$IMG"
 
       - name: Generate ISO with Titanoboa
         id: generate

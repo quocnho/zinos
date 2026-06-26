@@ -45,6 +45,7 @@ jobs:
           - bamos-cosmic-nvidia.yml
     steps:
       - name: Build Custom Image
+        id: build
         uses: blue-build/github-action@v1.11
         with:
           recipe: ${{ matrix.recipe }}
@@ -53,10 +54,10 @@ jobs:
           pr_event_number: ${{ github.event.number }}
           maximize_build_space: true
 
-  # ── Job 2: Generate ISOs (only on main or manual dispatch) ──────────────────
+  # ── Job 2: Generate ISOs (weekly or manual) ─────────────────────────────────
   build-isos:
     if: >
-      (github.ref_name == 'main' && github.event_name != 'pull_request') ||
+      (github.event_name == 'schedule') ||
       (github.event_name == 'workflow_dispatch' && inputs.build_iso == 'true')
     needs: build-images
     runs-on: ubuntu-latest
@@ -93,12 +94,21 @@ jobs:
         run: echo "lowercase=${IMAGE_REGISTRY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Generate ISO with Titanoboa
+        id: generate
         uses: Zeglius/titanoboa@revamp-pr
         with:
           image-ref: ${{ steps.registry.outputs.lowercase }}/${{ matrix.edition.name }}:latest
           livesys: "true"
           compression: squashfs
           iso-dest: ${{ github.workspace }}/${{ matrix.edition.iso-label }}-${{ github.ref_name }}-amd64.iso
+
+      - name: Get ISO file size
+        id: size
+        run: |
+          FILE="${{ github.workspace }}/${{ matrix.edition.iso-label }}-${{ github.ref_name }}-amd64.iso"
+          SIZE=$(ls -lh "$FILE" | awk '{print $5}')
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
 
       - name: Generate checksum
         run: |
@@ -115,8 +125,93 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-      - name: Upload ISO to Cloudflare R2
-        if: github.ref_name == 'main'
+  # ── Job 3: Notify build status via email ──────────────────────────────────
+  notify:
+    if: always() && github.event_name == 'schedule'
+    needs: [build-images, build-isos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build email content
+        id: content
+        env:
+          IMAGES_STATUS: ${{ needs.build-images.result }}
+          ISO_STATUS: ${{ needs.build-isos.result }}
+        run: |
+          if [[ "$IMAGES_STATUS" == "success" && "$ISO_STATUS" == "success" ]]; then
+            echo "status=success" >> "$GITHUB_OUTPUT"
+            echo "title=✅ BamOS Build Thành Công" >> "$GITHUB_OUTPUT"
+            echo "msg=Chúc mừng! BamOS đã build và release thành công." >> "$GITHUB_OUTPUT"
+          elif [[ "$IMAGES_STATUS" == "success" && "$ISO_STATUS" == "skipped" ]]; then
+            echo "status=success" >> "$GITHUB_OUTPUT"
+            echo "title=✅ BamOS Images Build Thành Công" >> "$GITHUB_OUTPUT"
+            echo "msg=Images đã được push lên GHCR. ISO không được tạo (chỉ tạo theo lịch tuần)." >> "$GITHUB_OUTPUT"
+          else
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+            echo "title=❌ BamOS Build Thất Bại" >> "$GITHUB_OUTPUT"
+            echo "msg=BamOS build gặp lỗi." >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send build summary email
+        uses: dawidd6/action-send-mail@v4
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: ${{ steps.content.outputs.title }}
+          to: quocnho@gmail.com
+          from: BamOS CI
+          body: |
+            ${{ steps.content.outputs.msg }}
+
+            📋 Chi tiết:
+            - Images (GHCR): ${{ needs.build-images.result }}
+            - ISOs (R2 + Release): ${{ needs.build-isos.result }}
+
+            🔗 Commit: ${{ github.sha }}
+            🔗 Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ${{ needs.build-isos.result == 'success' && format('📥 Tải ISOs: https://github.com/{0}/releases', github.repository) || '' }}
+
+            ---
+            BamOS CI - Build tự động
+
+  # ── Job 4: Release to GitHub Releases + Cloudflare R2 ───────────────────
+  release:
+    if: always() && needs.build-isos.result == 'success'
+    needs: build-isos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all ISO artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: iso-artifacts
+          merge-multiple: true
+
+      - name: Get ISO list with sizes
+        id: iso-info
+        run: |
+          echo "### Danh sách ISO" > /tmp/iso-list.txt
+          echo "" >> /tmp/iso-list.txt
+          TOTAL=0
+          for f in iso-artifacts/*.iso; do
+            NAME=$(basename "$f" .iso)
+            SIZE=$(ls -lh "$f" | awk '{print $5}')
+            BYTES=$(ls -l "$f" | awk '{print $5}')
+            TOTAL=$((TOTAL + BYTES))
+            echo "- **${NAME}** → ${SIZE}" >> /tmp/iso-list.txt
+          done
+          TOTAL_HR=$(numfmt --to=iec $TOTAL 2>/dev/null || echo "${TOTAL} bytes")
+          echo "" >> /tmp/iso-list.txt
+          echo "**Tổng dung lượng: $TOTAL_HR**" >> /tmp/iso-list.txt
+          echo "list<<EOF" >> "$GITHUB_OUTPUT"
+          cat /tmp/iso-list.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "total=$TOTAL_HR" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to Cloudflare R2
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
@@ -129,24 +224,10 @@ jobs:
             secret_access_key $R2_SECRET_ACCESS_KEY \
             region auto \
             endpoint $R2_ENDPOINT
-          rclone copy ${{ github.workspace }} r2:bamos-iso \
-            --include "*.iso" --include "CHECKSUM-*.txt" \
-            --verbose
-          echo "ISO uploaded to Cloudflare R2: bamos-iso bucket"
-
-  # ── Job 3: Create GitHub Release with all ISOs (main branch only) ──────────
-  release:
-    if: github.ref_name == 'main' && github.event_name != 'pull_request'
-    needs: build-isos
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download all ISO artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: iso-artifacts
-          merge-multiple: true
+          rclone delete r2:bamos-iso --include "*.iso" --verbose
+          rclone delete r2:bamos-iso --include "CHECKSUM-*.txt" --verbose 2>/dev/null || true
+          rclone copy iso-artifacts r2:bamos-iso --verbose
+          echo "All ISOs uploaded to Cloudflare R2."
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -158,15 +239,87 @@ jobs:
 
             Automated build from commit ${{ github.sha }}
 
-            ### Editions:
-            - BamOS KDE
-            - BamOS KDE NVIDIA
-            - BamOS GNOME
-            - BamOS GNOME NVIDIA
-            - BamOS COSMIC
-            - BamOS COSMIC NVIDIA
+            ### Danh sách ISO:
 
-            > ⚠️ Nightly builds may contain unstable changes.
+            ${{ steps.iso-info.outputs.list }}
+
+            > ⚠️ Nightly builds may contain unstable changes. Tổng dung lượng: ${{ steps.iso-info.outputs.total }}
           files: iso-artifacts/*
           prerelease: true
           make_latest: true
+
+      - name: Send ISO release email (thành công)
+        if: success()
+        uses: dawidd6/action-send-mail@v4
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "🎉 BamOS ISOs đã sẵn sàng!"
+          to: quocnho@gmail.com
+          from: BamOS CI
+          body: |
+            🎉 Chúc mừng! BamOS đã build ISO thành công!
+
+            Dưới đây là danh sách các ISO và dung lượng:
+
+            ${{ steps.iso-info.outputs.list }}
+
+            📥 Tải xuống:
+            - GitHub Releases: https://github.com/${{ github.repository }}/releases/tag/nightly-${{ github.run_id }}
+            - Tất cả Releases: https://github.com/${{ github.repository }}/releases
+
+            🔗 Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            ---
+            BamOS CI - Build tự động
+
+  # ── Job 5: Notify failure (nếu có lỗi) ────────────────────────────────────
+  notify-failure:
+    if: failure()
+    needs: [build-images, build-isos, release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine failure stage
+        id: stage
+        run: |
+          echo "### Build Images: ${{ needs.build-images.result }}" > /tmp/fail.txt
+          echo "### Build ISOs: ${{ needs.build-isos.result }}" >> /tmp/fail.txt
+          echo "### Release: ${{ needs.release.result }}" >> /tmp/fail.txt
+          echo "" >> /tmp/fail.txt
+
+          if [[ "${{ needs.build-images.result }}" != "success" ]]; then
+            echo "❌ Giai đoạn thất bại: **Build Images**" >> /tmp/fail.txt
+            echo "→ Kiểm tra log tại: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> /tmp/fail.txt
+          elif [[ "${{ needs.build-isos.result }}" != "success" ]]; then
+            echo "❌ Giai đoạn thất bại: **Build ISOs**" >> /tmp/fail.txt
+          elif [[ "${{ needs.release.result }}" != "success" ]]; then
+            echo "❌ Giai đoạn thất bại: **Release**" >> /tmp/fail.txt
+          fi
+
+          echo "info<<EOF" >> "$GITHUB_OUTPUT"
+          cat /tmp/fail.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Send failure email
+        uses: dawidd6/action-send-mail@v4
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: "❌ BamOS Build Thất Bại"
+          to: quocnho@gmail.com
+          from: BamOS CI
+          body: |
+            ❌ BamOS build gặp lỗi!
+
+            ${{ steps.stage.outputs.info }}
+
+            🔗 Chi tiết: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Hãy kiểm tra log để biết thêm thông tin.
+
+            ---
+            BamOS CI

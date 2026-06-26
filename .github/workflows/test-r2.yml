@@ -7,39 +7,36 @@ jobs:
   test-r2:
     runs-on: ubuntu-latest
     steps:
-      - name: Test Cloudflare R2 connectivity
+      - name: Test with awscli
         env:
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT }}
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq rclone
+          sudo apt-get update -qq && sudo apt-get install -y -qq awscli
 
-          rclone config create r2 s3 \
-            provider Cloudflare \
-            access_key_id $R2_ACCESS_KEY_ID \
-            secret_access_key $R2_SECRET_ACCESS_KEY \
-            region auto \
-            endpoint $R2_ENDPOINT
-
-          echo "=== Check bucket bamos-iso ==="
-          rclone ls r2:bamos-iso && echo "Bucket exists and readable" || echo "Bucket check done (may be empty)"
+          echo "=== List files in bucket ==="
+          aws s3 ls s3://bamos-iso \
+            --endpoint-url $AWS_ENDPOINT_URL \
+            --region auto 2>&1
 
           echo ""
           echo "=== Test upload ==="
-          echo "hello from github actions $(date)" > /tmp/test-r2.txt
-          rclone copy /tmp/test-r2.txt r2:bamos-iso/
-          echo "✅ Upload OK"
+          echo "hello from gh actions $(date)" > /tmp/test.txt
+          aws s3 cp /tmp/test.txt s3://bamos-iso/test.txt \
+            --endpoint-url $AWS_ENDPOINT_URL \
+            --region auto 2>&1
 
           echo ""
           echo "=== Test download ==="
-          rclone cat r2:bamos-iso/test-r2.txt
-          echo "✅ Download OK"
+          aws s3 cp s3://bamos-iso/test.txt /tmp/test-down.txt \
+            --endpoint-url $AWS_ENDPOINT_URL \
+            --region auto 2>&1
+          cat /tmp/test-down.txt
 
           echo ""
           echo "=== Cleanup ==="
-          rclone delete r2:bamos-iso/test-r2.txt
-          echo "✅ Cleanup OK"
-
-          echo ""
-          echo "✅ R2 connection successful!"
+          aws s3 rm s3://bamos-iso/test.txt \
+            --endpoint-url $AWS_ENDPOINT_URL \
+            --region auto 2>&1
+          echo "✅ R2 OK"

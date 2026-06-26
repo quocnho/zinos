@@ -7,6 +7,11 @@ on:
     branches: [main, develop]
     paths-ignore:
       - "**.md"
+      - "editions/**"
+      - "AGENTS.md"
+      - "DEVELOPMENT.md"
+      - "README.md"
+      - ".github/ISSUE_TEMPLATE/**"
   pull_request:
   workflow_dispatch:
     inputs:

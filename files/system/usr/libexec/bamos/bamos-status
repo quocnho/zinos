@@ -1,41 +1,59 @@
 #!/usr/bin/env bash
+# BamOS System Status
+# Shows system information including overlay status, kernel, bootc deployment.
+#
+# Usage: bamos status
+
 set -euo pipefail
 
-echo "=== BamOS System Status ==="
+echo "╔══════════════════════════════════════╗"
+echo "║     BamOS System Status              ║"
+echo "╚══════════════════════════════════════╝"
+
+# ── OS Info ──────────────────────────────────────────────────────────────────
 echo ""
+echo "▶ OS:"
+cat /etc/os-release 2>/dev/null | head -7 | sed 's/^/  /'
 
-# OS info
-if [[ -f /etc/os-release ]]; then
-    . /etc/os-release
-    echo "OS:       $PRETTY_NAME"
-fi
+# ── Kernel ───────────────────────────────────────────────────────────────────
+echo ""
+echo "▶ Kernel:"
+uname -r | sed 's/^/  /'
 
-# Kernel
-echo "Kernel:   $(uname -r)"
-
-# Booted image
-if command -v bootc &>/dev/null; then
-    bootc status --json 2>/dev/null | jq -r '
-        .status.booted.image.image.image // "N/A",
-        .status.booted.image.version // "N/A"
-    ' 2>/dev/null | {
-        read -r img; read -r ver
-        echo "Image:    $img"
-        echo "Version:  $ver"
-    } || echo "Image:    N/A"
-fi
-
-# Disk
-echo "Disk:     $(df -h / | tail -1 | awk '{print $3 \" used / \" $2 \" total\"}')"
-
-# Updates
-if command -v bootc &>/dev/null; then
-    if bootc upgrade --check 2>&1 | grep -q "No changes"; then
-        echo "Updates:  None (system up to date)"
+# ── Overlay Status ────────────────────────────────────────────────────────────
+echo ""
+echo "▶ Overlay:"
+if mountpoint -q /usr; then
+    if grep -q "overlay" /proc/mounts | grep -q " /usr "; then
+        echo "  ✅ Persistent overlay ACTIVE on /usr"
+        DF_OUTPUT=$(df -h /usr 2>/dev/null | tail -1)
+        echo "  Usage: $(echo "$DF_OUTPUT" | awk '{print $3}') / $(echo "$DF_OUTPUT" | awk '{print $2}')"
     else
-        echo "Updates:  Available (run 'bamos system-upgrade')"
+        echo "  ⚠️  /usr mounted but not as overlay"
     fi
+else
+    echo "  ❌ Overlay NOT mounted — run 'sudo bamos setup-overlay' or reboot"
 fi
+
+# Check state file
+STATE_FILE="/var/lib/bamos/overlay.state"
+if [[ -f "$STATE_FILE" ]]; then
+    echo "  State: $(cat "$STATE_FILE")"
+else
+    echo "  State: fresh (first boot pending)"
+fi
+
+# ── Bootc Status ──────────────────────────────────────────────────────────────
 echo ""
-echo "For package management:  bamos install/remove/list"
-echo "For system upgrade:      bamos system-upgrade"
+echo "▶ Bootc:"
+bootc status 2>/dev/null | head -10 | sed 's/^/  /' || echo "  (bootc not available)"
+
+# ── Package Count ──────────────────────────────────────────────────────────────
+PACKAGES_LIST="/var/lib/bamos/packages.list"
+if [[ -f "$PACKAGES_LIST" ]]; then
+    COUNT=$(grep -v '^\s*#' "$PACKAGES_LIST" | grep -v '^\s*$' | wc -l)
+    echo ""
+    echo "▶ Overlay packages: $COUNT"
+fi
+
+echo ""

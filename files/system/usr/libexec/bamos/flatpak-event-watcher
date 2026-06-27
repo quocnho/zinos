@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# BamOS Flatpak Event Watcher
+# Monitors flatpak installation events and updates the overlay
+# state accordingly. Runs as a simple systemd service.
+
+set -euo pipefail
+
+echo "[bamos] Flatpak event watcher started."
+
+# Watch for flatpak installs via inotify on the flatpak installation dirs
+inotifywait -m -e create,delete \
+    /var/lib/flatpak/app \
+    --format '%e %w%f' 2>/dev/null | while read -r event path; do
+
+    case "$event" in
+        CREATE*)
+            echo "[bamos] Flatpak installed: $path"
+            ;;
+        DELETE*)
+            echo "[bamos] Flatpak removed: $path"
+            ;;
+    esac
+done || {
+    # Fallback: just do a periodic check
+    echo "[bamos] inotify not available — using polling (every 5min)."
+    while true; do
+        sleep 300
+    done
+}

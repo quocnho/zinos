@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=BamOS SCX Manager (Autostart)
+Comment=Launch SCX scheduler manager on login
+Exec=/usr/bin/bamos-scx-manager
+Icon=utilities-system-monitor-symbolic
+Terminal=false
+Categories=System;Utility;Monitor;
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-after=panel
+OnlyShowIn=GNOME;KDE;MATE;XFCE;Budgie;Cinnamon;
+NoDisplay=true

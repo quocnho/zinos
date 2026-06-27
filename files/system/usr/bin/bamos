@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
+# BamOS — system management tool
+#
+# Usage:
+#   bamos install <pkg> [pkg...]     Install packages into overlay
+#   bamos remove <pkg> [pkg...]      Remove packages from overlay
+#   bamos update [--full]            Update overlay packages (+ base image)
+#   bamos list                       List overlay-installed packages
+#   bamos status                     Show system status
+#   bamos system-upgrade             Upgrade base system image via bootc
+#   bamos reset                      Reset overlay (remove all installed pkgs)
+#   bamos rollback                   Rollback to previous bootc deployment
+#   bamos setup-gaming               Install gaming packages
+#   bamos setup-virtualization       Install KVM/QEMU
+#   bamos setup-overlay              Manually trigger overlay setup (first boot)
+
 set -e
 
 COMMAND="${1:-}"
@@ -8,17 +23,13 @@ case "$COMMAND" in
         shift
         /usr/libexec/bamos/bamos-install "$@"
         ;;
-    update)
-        shift
-        /usr/libexec/bamos/bamos-update "$@"
-        ;;
     remove)
         shift
         /usr/libexec/bamos/bamos-remove "$@"
         ;;
-    system-upgrade)
+    update)
         shift
-        exec bootc upgrade "$@"
+        /usr/libexec/bamos/bamos-update "$@"
         ;;
     list)
         /usr/libexec/bamos/bamos-list
@@ -26,41 +37,58 @@ case "$COMMAND" in
     status)
         /usr/libexec/bamos/bamos-status
         ;;
+    system-upgrade)
+        shift
+        echo "Upgrading system image via bootc..."
+        exec bootc upgrade "$@"
+        ;;
+    reset)
+        exec /usr/libexec/bamos/bamos-reset-overlay
+        ;;
+    rollback)
+        echo "Rolling back to previous deployment..."
+        exec bootc rollback
+        ;;
+    setup-overlay)
+        echo "Setting up overlay infrastructure..."
+        /usr/libexec/bamos/bamos-overlay-mount 2>/dev/null || {
+            echo "ERROR: Cannot mount overlay. Try rebooting first."
+            exit 1
+        }
+        /usr/libexec/bamos/bamos-base-protect
+        /usr/libexec/bamos/bamos-overlay-sync
+        /usr/libexec/bamos/bamos-overlay-services
+        echo "Overlay setup complete."
+        ;;
     setup-gaming)
-        /usr/libexec/bamos/bamos-setup-gaming
+        exec /usr/libexec/bamos/bamos-setup-gaming
         ;;
     setup-virtualization)
-        /usr/libexec/bamos/bamos-setup-virtualization
+        exec /usr/libexec/bamos/bamos-setup-virtualization
         ;;
     help|--help|-h)
-        echo "BamOS Helper"
+        echo "BamOS — System Management Tool"
         echo ""
         echo "Usage:"
-        echo "  bamos install <package> [pkg2...]     Install packages"
-        echo "  bamos update                          Update all packages"
-        echo "  bamos remove <package> [pkg2...]      Remove packages"
-        echo "  bamos list                            List installed packages"
-        echo "  bamos status                          Show system status"
-        echo "  bamos system-upgrade                  Upgrade system image via bootc"
-        echo "  bamos setup-gaming                    Install gaming packages"
-        echo "  bamos setup-virtualization            Install KVM/QEMU"
+        echo "  bamos install <pkg> [pkg...]       Install packages"
+        echo "  bamos remove <pkg> [pkg...]        Remove packages"
+        echo "  bamos update [--full]              Update packages (+ bootc)"
+        echo "  bamos list                         List installed packages"
+        echo "  bamos status                       Show system status"
+        echo "  bamos system-upgrade               Upgrade system image"
+        echo "  bamos reset                        Reset overlay to pristine state"
+        echo "  bamos rollback                     Rollback bootc deployment"
+        echo "  bamos setup-overlay                Setup overlay on first boot"
+        echo "  bamos setup-gaming                 Install gaming packages"
+        echo "  bamos setup-virtualization         Install KVM/QEMU"
         ;;
     *)
-        echo "BamOS Helper"
-        echo ""
-        echo "Usage: bamos <command> [options]"
-        echo ""
-        echo "Commands:"
-        echo "  install              Install packages"
-        echo "  update               Update packages"
-        echo "  remove               Remove packages"
-        echo "  list                 List installed packages"
-        echo "  status               Show system information"
-        echo "  system-upgrade       Upgrade system image"
-        echo "  setup-gaming         Install gaming packages"
-        echo "  setup-virtualization Install virtualization packages"
-        echo ""
-        echo "Run 'bamos help' for more details."
+        if [[ -n "$COMMAND" ]]; then
+            echo "Unknown command: $COMMAND"
+            echo "Run 'bamos help' for usage."
+        else
+            /usr/libexec/bamos/bamos-status
+        fi
         exit 1
         ;;
 esac

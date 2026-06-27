@@ -1,0 +1,13 @@
+# BamOS GNOME — Default Flatpaks
+# These Flatpaks are installed system-wide on first boot.
+# One app per line. Lines starting with # are ignored.
+
+# Web
+org.mozilla.firefox
+
+# Utilities
+org.gnome.Calculator
+org.gnome.Calendar
+org.gnome.Loupe
+org.gnome.TextEditor
+org.gnome.clocks

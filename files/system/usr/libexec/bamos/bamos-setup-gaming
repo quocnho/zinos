@@ -1,38 +1,69 @@
 #!/usr/bin/env bash
+# BamOS Gaming Setup
+# Installs gaming packages into the overlay.
+# Usage: sudo bamos setup-gaming
+#
+# IMPORTANT: This script runs on the INSTALLED SYSTEM (not during container build).
+# It installs packages into the persistent overlay on /usr.
+
 set -euo pipefail
 
-echo "=== BamOS Gaming Setup ==="
+echo "╔══════════════════════════════════════╗"
+echo "║     BamOS Gaming Setup              ║"
+echo "╚══════════════════════════════════════╝"
+echo ""
 
-echo "Installing gaming packages..."
-rpm-ostree install -y \
+# ── Check overlay is active ───────────────────────────────────────────────────
+if ! mountpoint -q /usr; then
+    echo "ERROR: Persistent overlay not mounted on /usr."
+    echo "Run 'sudo bamos setup-overlay' first or reboot."
+    exit 1
+fi
+
+# ── Install gaming RPMs ───────────────────────────────────────────────────────
+echo "▶ Installing gaming packages..."
+dnf5.real install -y \
     steam \
     lutris \
-    mangohud \
-    mangohud.i686 \
-    vkBasalt \
-    vkBasalt.i686 \
+    mangohud mangohud.i686 \
+    vkBasalt vkBasalt.i686 \
     goverlay \
-    protonplus \
     protontricks \
     steam-devices \
-    gamemode \
-    gamemode.i686 \
-    2>/dev/null || {
-        echo "Some packages may not be available. Installing what's possible..."
-        rpm-ostree install -y steam lutris mangohud mangohud.i686 \
-            gamemode gamemode.i686 steam-devices 2>/dev/null || true
+    gamemode gamemode.i686 \
+    2>&1 || {
+        echo "Some packages failed. Continuing with core gaming packages..."
+        dnf5.real install -y steam mangohud mangohud.i686 gamemode gamemode.i686 steam-devices 2>&1 || true
     }
 
-# Install Flatpak gaming apps
-echo "Installing gaming Flatpaks..."
-flatpak install -y flathub \
+# ── Install gaming Flatpaks ───────────────────────────────────────────────────
+echo "▶ Installing gaming Flatpaks..."
+flatpak install -y --noninteractive flathub \
     net.lutris.Lutris \
     com.heroicgameslauncher.hgl \
     com.discordapp.Discord \
     org.prismlauncher.PrismLauncher \
     2>/dev/null || true
 
+# ── Configure gamemode ─────────────────────────────────────────────────────────
+echo "▶ Configuring gamemode..."
+mkdir -p /etc/gamemode
+cat > /etc/gamemode/gamemode.ini << 'EOF'
+[general]
+renice=10
+softrealtime=auto
+releasemem=enable
+desiredgov=performance
+EOF
+
+# ── Enable gamemoded service ──────────────────────────────────────────────────
+systemctl enable gamemoded 2>/dev/null || true
+
 echo ""
-echo "=== Gaming setup initiated ==="
-echo "Reboot to apply system packages: systemctl reboot"
-echo "Flatpak apps are available immediately."
+echo "✅ Gaming setup complete!"
+echo ""
+echo "Installed: steam, lutris, mangohud, gamemode, vkBasalt, protontricks"
+echo "Flatpaks:  Lutris, Heroic Games Launcher, Discord, Prism Launcher"
+echo ""
+echo "  🎮 Run 'steam' to get started!"
+echo "  📊 Press Shift+F12 to toggle MangoHud in-game"

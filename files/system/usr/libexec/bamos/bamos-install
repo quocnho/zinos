@@ -1,18 +1,41 @@
 #!/usr/bin/env bash
+# BamOS Package Install
+# Installs packages into the persistent overlay.
+# Works with dnf.real (the renamed dnf5 binary) to install packages
+# into /usr (which is overlay-mounted).
+#
+# Usage: bamos install <package> [package...]
+
 set -euo pipefail
 
-if [[ "${#@}" -eq 0 ]]; then
-    echo "Usage: bamos install <package> [package2...]"
+if [[ $# -eq 0 ]]; then
+    echo "Usage: bamos install <package> [package...]"
     exit 1
 fi
 
-if [[ "$EUID" -ne 0 ]]; then
-    echo "ERROR: bamos install must be run as root"
+echo "[bamos] Installing packages: $*"
+
+# Ensure /usr is overlay-mounted
+if ! mountpoint -q /usr; then
+    echo "[bamos] ERROR: /usr is not overlay-mounted."
+    echo "[bamos] Run 'sudo bamos setup-overlay' first or reboot."
     exit 1
 fi
 
-echo "Installing packages via rpm-ostree..."
-rpm-ostree install -y "$@"
-echo ""
-echo "Packages installed. Reboot to apply:"
-echo "  systemctl reboot"
+# Install packages via dnf (the real one, pointing to overlay /usr)
+dnf5.real install -y "$@" 2>&1
+
+# Record installed packages in packages.list
+PACKAGES_LIST="/var/lib/bamos/packages.list"
+mkdir -p "$(dirname "$PACKAGES_LIST")"
+touch "$PACKAGES_LIST"
+
+for pkg in "$@"; do
+    # Extract the actual package name (not nevra)
+    PKG_NAME=$(rpm -q --queryformat '%{NAME}\n' "$pkg" 2>/dev/null || echo "$pkg")
+    if ! grep -qxF "$PKG_NAME" "$PACKAGES_LIST" 2>/dev/null; then
+        echo "$PKG_NAME" >> "$PACKAGES_LIST"
+    fi
+done
+
+echo "[bamos] Installation complete."

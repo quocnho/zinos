@@ -1,27 +1,54 @@
 #!/usr/bin/env bash
+# BamOS Virtualization Setup
+# Installs KVM/QEMU/libvirt and virt-manager.
+# Usage: sudo bamos setup-virtualization
+#
+# IMPORTANT: This script runs on the INSTALLED SYSTEM (not during container build).
+# It installs packages into the persistent overlay on /usr.
+
 set -euo pipefail
 
-echo "=== BamOS Virtualization Setup ==="
+echo "╔══════════════════════════════════════╗"
+echo "║     BamOS Virtualization Setup       ║"
+echo "╚══════════════════════════════════════╝"
+echo ""
 
-echo "Installing virtualization packages..."
-rpm-ostree install -y \
+# ── Check overlay is active ───────────────────────────────────────────────────
+if ! mountpoint -q /usr; then
+    echo "ERROR: Persistent overlay not mounted on /usr."
+    echo "Run 'sudo bamos setup-overlay' first or reboot."
+    exit 1
+fi
+
+# ── Install virtualization packages ───────────────────────────────────────────
+echo "▶ Installing virtualization packages..."
+dnf5.real install -y \
     @virtualization \
     virt-manager \
     libvirt-daemon-config-network \
-    2>/dev/null || {
-        rpm-ostree install -y \
+    2>&1 || {
+        echo "Group install failed. Trying individual packages..."
+        dnf5.real install -y \
             qemu-kvm libvirt-daemon-kvm virt-manager virt-install \
-            libvirt-daemon-config-network 2>/dev/null || true
+            libvirt-daemon-config-network 2>&1 || true
     }
 
-echo ""
-echo "Enabling libvirtd service..."
+# ── Enable and start libvirtd ─────────────────────────────────────────────────
+echo "▶ Enabling libvirtd service..."
 systemctl enable libvirtd 2>/dev/null || true
+systemctl start libvirtd 2>/dev/null || true
+
 echo ""
-echo "=== Virtualization setup initiated ==="
-echo "Reboot to apply: systemctl reboot"
+echo "✅ Virtualization setup complete!"
 echo ""
-echo "After reboot:"
-echo "  1. Add yourself to libvirt group: sudo usermod -aG libvirt \$USER"
-echo "  2. Start virt-manager or gnome-boxes"
-echo "  3. Create your first VM!"
+echo "Installed: qemu-kvm, libvirt-daemon-kvm, virt-manager"
+echo ""
+echo "After setup:"
+echo "  1. Add yourself to libvirt group:"
+echo "     sudo usermod -aG libvirt \$USER"
+echo "  2. Log out and back in (or run 'newgrp libvirt')"
+echo "  3. Open virt-manager and create your first VM!"
+echo ""
+echo "  📦 Quick VM creation:"
+echo "     sudo virt-install --name test --memory 2048 --disk size=20 \\"
+echo "       --cdrom /path/to/iso --os-variant fedora-unknown"

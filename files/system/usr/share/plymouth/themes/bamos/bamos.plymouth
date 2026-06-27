@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=BamOS
+Description=BamOS Linux — Atomic boot splash with spinner
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/bamos
+ScriptFile=/usr/share/plymouth/themes/bamos/bamos.script

@@ -1,18 +1,40 @@
 #!/usr/bin/env bash
+# BamOS Package Remove
+# Removes packages from the persistent overlay.
+# Checks protected-packages.txt to prevent removing base system packages.
+#
+# Usage: bamos remove <package> [package...]
+
 set -euo pipefail
 
-if [[ "${#@}" -eq 0 ]]; then
-    echo "Usage: bamos remove <package> [package2...]"
+PROTECTED_FILE="/usr/share/bamos/protected-packages.txt"
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: bamos remove <package> [package...]"
     exit 1
 fi
 
-if [[ "$EUID" -ne 0 ]]; then
-    echo "ERROR: bamos remove must be run as root"
-    exit 1
+# Check if any requested packages are protected
+for pkg in "$@"; do
+    if [[ -f "$PROTECTED_FILE" ]]; then
+        if grep -qxF "$pkg" "$PROTECTED_FILE" 2>/dev/null; then
+            echo "[bamos] ERROR: '$pkg' is a protected base package and cannot be removed."
+            echo "[bamos] Protected packages ensure system stability."
+            exit 1
+        fi
+    fi
+done
+
+echo "[bamos] Removing packages: $*"
+dnf5.real remove -y "$@" 2>&1
+
+# Update packages.list
+PACKAGES_LIST="/var/lib/bamos/packages.list"
+if [[ -f "$PACKAGES_LIST" ]]; then
+    for pkg in "$@"; do
+        PKG_NAME=$(rpm -q --queryformat '%{NAME}\n' "$pkg" 2>/dev/null || echo "$pkg")
+        sed -i "/^${PKG_NAME}$/d" "$PACKAGES_LIST" 2>/dev/null || true
+    done
 fi
 
-echo "Removing packages..."
-rpm-ostree uninstall -y "$@"
-echo ""
-echo "Packages removed. Reboot to apply:"
-echo "  systemctl reboot"
+echo "[bamos] Removal complete."

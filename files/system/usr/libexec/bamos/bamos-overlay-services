@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# BamOS Overlay Services
+# Re-enables systemd services that were installed into the overlay
+# (e.g., services from packages installed via `bamos install`).
+# Runs after overlay-sync so overlay packages and their service files
+# are already available at /usr.
+
+set -euo pipefail
+
+OVERLAY_SERVICE_DIR="/usr/lib/systemd/system"
+SYSTEMD_SERVICE_DIR="/etc/systemd/system"
+
+# ── Scan overlay for service files ────────────────────────────────────────────
+echo "[bamos] Scanning for overlay-installed services..."
+
+SERVICES_DIR="/var/lib/bamos/overlay/upper/usr/lib/systemd/system"
+if [[ -d "$SERVICES_DIR" ]]; then
+    for svc in "$SERVICES_DIR"/*.service; do
+        [[ -f "$svc" ]] || continue
+        SVC_NAME=$(basename "$svc")
+
+        # Check if this service should be enabled
+        # (look for WantedBy= in the service file)
+        if grep -q "WantedBy=" "$svc" 2>/dev/null; then
+            echo "[bamos] Enabling overlay service: $SVC_NAME"
+            systemctl enable "$SVC_NAME" 2>/dev/null || true
+        fi
+    done
+fi
+
+# ── Reenable bamos core services ──────────────────────────────────────────────
+for svc in \
+    bamos-overlay-mount.service \
+    bamos-overlay-sync.service \
+    bamos-overlay-services.service \
+    bamos-base-protect.service \
+    bamos-flatpaks.service \
+    bamos-flatpak-watcher.service \
+    bamos-cache-clean.timer; do
+    systemctl enable "$svc" 2>/dev/null || true
+done
+
+echo "[bamos] Overlay services check complete."

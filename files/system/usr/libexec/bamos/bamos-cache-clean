@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# BamOS Cache Clean
+# Cleans up dnf and podman caches periodically.
+# Run automatically via bamos-cache-clean.timer.
+
+set -euo pipefail
+
+echo "[bamos] Cleaning dnf cache..."
+dnf5.real clean all 2>/dev/null || true
+
+echo "[bamos] Cleaning podman cache..."
+podman system prune -af 2>/dev/null || true
+
+echo "[bamos] Cleaning flatpak data..."
+flatpak uninstall --unused -y 2>/dev/null || true
+
+echo "[bamos] Cache clean complete."

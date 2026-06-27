@@ -1,0 +1,14 @@
+[Unit]
+Description=BamOS Base Protect — protect base image packages from overlay removal
+After=bamos-overlay-mount.service
+Before=bamos-overlay-sync.service
+ConditionPathExists=!/run/ostree-booted
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/bamos/bamos-base-protect
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# BamOS Reset Overlay
+# Wipes the persistent overlay and reboots.
+# After reboot, the system returns to pristine state (base image only).
+# Packages listed in packages.list will be reinstalled automatically.
+#
+# Usage: sudo bamos reset
+
+set -euo pipefail
+
+echo "╔══════════════════════════════════════╗"
+echo "║     BamOS Overlay Reset              ║"
+echo "╚══════════════════════════════════════╝"
+echo ""
+echo "⚠️  WARNING: This will remove ALL overlay-installed packages"
+echo "   and reset /usr to the base image state."
+echo ""
+echo "   User data in /home /var /etc will NOT be affected."
+echo "   Packages in packages.list will be reinstalled on next boot."
+echo ""
+
+# ── Confirm ───────────────────────────────────────────────────────────────────
+read -r -p "Are you sure? Type 'yes' to continue: " CONFIRM
+if [[ "$CONFIRM" != "yes" ]]; then
+    echo "Reset cancelled."
+    exit 0
+fi
+
+echo ""
+echo "[bamos] Unmounting overlay..."
+umount /usr 2>/dev/null || true
+
+echo "[bamos] Removing overlay data..."
+rm -rf /var/lib/bamos/overlay 2>/dev/null || true
+
+echo "[bamos] Removing sync markers..."
+rm -f /var/lib/bamos/overlay.state
+rm -f /var/lib/bamos/overlay.synced
+rm -f /var/lib/bamos/overlay.dirty
+
+echo "[bamos] Overlay reset complete."
+echo ""
+echo "▶ Reboot to apply:"
+echo "   sudo systemctl reboot"
+echo ""
+echo "   On next boot, packages in packages.list will be"
+echo "   automatically reinstalled."

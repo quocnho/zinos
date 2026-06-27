@@ -71,7 +71,8 @@ dnf5 -y install \
     appstream appstream-data fwupd \
     fuse squashfuse v4l-utils unzip \
     google-noto-sans-cjk-fonts google-noto-sans-mono-cjk-vf-fonts \
-    bibata-cursor-theme adw-gtk3-theme
+    bibata-cursor-theme adw-gtk3-theme \
+    python3-gobject libayatana-appindicator libnotify
 
 # ── Install EFI/GRUB boot packages (for Titanoboa ISO generation) ────────────
 dnf5 -y install \

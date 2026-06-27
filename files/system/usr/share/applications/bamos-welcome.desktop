@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=BamOS Welcome
+GenericName=System Welcome Screen
+Comment=Learn about BamOS Linux and get started
+Exec=/usr/share/bamos/welcome/bamos-welcome.sh
+Icon=bamos-logo
+Terminal=false
+Categories=System;Settings;
+StartupNotify=false
+NoDisplay=true

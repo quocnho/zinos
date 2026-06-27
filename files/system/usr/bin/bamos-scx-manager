@@ -1,0 +1,579 @@
+#!/usr/bin/env python3
+"""
+BamOS SCX Manager — GTK systray application for managing CPU schedulers (SCX).
+
+Features:
+  - Real-time CPU usage, frequency, and temperature display in systray tooltip
+  - Switch between Game (BORE/SCX_rusty), Work (SCX_lavd), Powersave (SCX_powersave)
+  - Desktop notifications on profile changes
+  - systemd-run integration for privilege escalation
+
+Dependencies:
+  python3-gobject, libayatana-appindicator, libnotify
+"""
+
+import argparse
+import logging
+import os
+import shlex
+import subprocess
+import sys
+import threading
+import time
+
+# ---------------------------------------------------------------------------
+# GTK / AppIndicator / Notify imports
+# ---------------------------------------------------------------------------
+try:
+    import gi
+except ImportError:
+    print("FATAL: PyGObject (gi) is not installed.", file=sys.stderr)
+    sys.exit(1)
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("AyatanaAppIndicator3", "0.1")
+gi.require_version("GLib", "2.0")
+gi.require_version("Notify", "0.7")
+
+from gi.repository import GLib, Gtk, Notify
+from gi.repository import AyatanaAppIndicator3 as AppIndicator
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+APP_ID = "bamos-scx-manager"
+APP_NAME = "BamOS SCX Manager"
+ICON_DEFAULT = "utilities-system-monitor-symbolic"
+ICON_GAME = "input-gaming-symbolic"
+ICON_WORK = "system-run-symbolic"
+ICON_POWERSAVE = "battery-good-symbolic"
+
+# Profile definitions: (label, scx_name, icon, tooltip_desc)
+PROFILES = {
+    "game": {
+        "label": "Game 🎮",
+        "scx_schedulers": ("scx_rusty", "scx_bore"),
+        "icon": ICON_GAME,
+        "description": "Low-latency gaming scheduler (BORE / SCX_rusty)",
+    },
+    "work": {
+        "label": "Work 💼",
+        "scx_schedulers": ("scx_lavd",),
+        "icon": ICON_WORK,
+        "description": "Balanced throughput scheduler (SCX_lavd)",
+    },
+    "powersave": {
+        "label": "Powersave 🔋",
+        "scx_schedulers": ("scx_powersave",),
+        "icon": ICON_POWERSAVE,
+        "description": "Energy-efficient scheduler (SCX_powersave)",
+    },
+}
+
+POLL_INTERVAL_SECONDS = 3
+NOTIFICATION_TIMEOUT_MS = 4000
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+logger = logging.getLogger(APP_ID)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _read_sysfs(path, fallback="N/A"):
+    """Read a sysfs file and return its content stripped, or *fallback*."""
+    try:
+        with open(path, "r") as f:
+            return f.read().strip()
+    except (OSError, IOError):
+        return fallback
+
+
+def _run_cmd(cmd, timeout=10):
+    """Run *cmd* (list) and return (retcode, stdout, stderr)."""
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+        )
+        return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
+    except subprocess.TimeoutExpired:
+        return -1, "", "Timeout"
+    except FileNotFoundError:
+        return -1, "", f"Command not found: {cmd[0]}"
+
+
+def _run_pkexec(cmd_str, timeout=30):
+    """Run a command as root via systemd-run (no password prompt in TTY)."""
+    full_cmd = [
+        "systemd-run", "--quiet", "--wait", "--user",
+        "--collect", "--unit", f"{APP_ID}-switch",
+        "--", "pkexec", "sh", "-c", cmd_str,
+    ]
+    logger.debug("Running: %s", shlex.join(full_cmd))
+    try:
+        proc = subprocess.run(
+            full_cmd, capture_output=True, text=True, timeout=timeout,
+        )
+        if proc.returncode != 0:
+            logger.warning("pkexec command failed: %s", proc.stderr.strip())
+        return proc.returncode
+    except subprocess.TimeoutExpired:
+        logger.error("pkexec command timed out")
+        return -1
+    except FileNotFoundError as exc:
+        logger.error("Missing command: %s", exc)
+        return -1
+
+
+# ---------------------------------------------------------------------------
+# CPU Monitor
+# ---------------------------------------------------------------------------
+
+class CPUMonitor:
+    """Reads CPU stats from /proc/stat, sysfs for freq & temp."""
+
+    def __init__(self):
+        self._prev_total = 0
+        self._prev_idle = 0
+        self._ncpus = os.cpu_count() or 1
+
+    def _parse_proc_stat(self):
+        """Return (total, idle) jiffies from /proc/stat."""
+        line = _read_sysfs("/proc/stat", "")
+        if not line:
+            return 0, 0
+        parts = line.split()
+        if len(parts) < 5:
+            return 0, 0
+        vals = [int(x) for x in parts[1:]]
+        total = sum(vals)
+        idle = vals[3]  # idle + iowait
+        return total, idle
+
+    def cpu_percent(self):
+        """Return average CPU usage percentage since last call."""
+        total, idle = self._parse_proc_stat()
+        if total == 0:
+            return 0.0
+        d_total = total - self._prev_total
+        d_idle = idle - self._prev_idle
+        self._prev_total = total
+        self._prev_idle = idle
+        if d_total <= 0:
+            return 0.0
+        usage = (1.0 - d_idle / d_total) * 100.0
+        # Cap at 100 to avoid rounding artifacts
+        return min(usage, 100.0)
+
+    def cpu_freq_mhz(self):
+        """Read current CPU frequency (average across online cores) in MHz."""
+        freqs = []
+        for i in range(self._ncpus):
+            path = (
+                f"/sys/devices/system/cpu/cpu{i}/cpufreq/"
+                "scaling_cur_freq"
+            )
+            val = _read_sysfs(path, "")
+            if val:
+                try:
+                    freqs.append(float(val) / 1000.0)  # kHz → MHz
+                except ValueError:
+                    pass
+        if not freqs:
+            return None
+        return sum(freqs) / len(freqs)
+
+    def cpu_temp_celsius(self):
+        """Read the first available thermal zone temperature."""
+        for tz in range(10):
+            path = f"/sys/class/thermal/thermal_zone{tz}/temp"
+            val = _read_sysfs(path, "")
+            if val:
+                try:
+                    return float(val) / 1000.0
+                except ValueError:
+                    pass
+        # Fallback: try hwmon paths
+        try:
+            out = subprocess.run(
+                ["sensors", "-u"],
+                capture_output=True, text=True, timeout=5,
+            )
+            for line in out.stdout.splitlines():
+                if "temp1_input" in line:
+                    return float(line.split(":")[1].strip())
+        except Exception:
+            pass
+        return None
+
+
+# ---------------------------------------------------------------------------
+# SCX Manager
+# ---------------------------------------------------------------------------
+
+class SCXManager:
+    """Discovers and switches SCX schedulers via scx_loader + systemd."""
+
+    def __init__(self):
+        self._current = None
+
+    def get_current_scheduler(self):
+        """Return the name of the currently active SCX scheduler (lowercase)."""
+        # Method 1: scx_loader --status or systemctl status scx
+        rc, out, _ = _run_cmd(
+            ["systemctl", "show", "-p", "ActiveEnterTimestampMonotonic",
+             "--value", "scx.service"],
+        )
+        if rc == 0:
+            rc2, out2, _ = _run_cmd(
+                ["systemctl", "show", "-p", "Names", "--value",
+                 "scx.target"],
+            )
+            if rc2 == 0:
+                # Try reading the actual scheduler from sysfs
+                sched = _read_sysfs(
+                    "/sys/kernel/scx_scheduler/current_scheduler", ""
+                )
+                if sched:
+                    return sched.lower()
+
+        # Method 2: read from sysfs directly
+        sched = _read_sysfs(
+            "/sys/kernel/scx_scheduler/current_scheduler", ""
+        )
+        if sched:
+            return sched.lower()
+
+        # Method 3: check scx_loader config
+        scx_config = _read_sysfs("/etc/scx/scx_loader", "")
+        if scx_config:
+            for line in scx_config.splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    return line.lower()
+
+        logger.warning("Could not detect current SCX scheduler")
+        return None
+
+    def _activate_scheduler(self, scx_name):
+        """Activate a single named scheduler via systemd-run+pkexec."""
+        cmd = (
+            f"systemctl stop 'scx@*' 2>/dev/null; "
+            f"systemctl start 'scx@{scx_name}'"
+        )
+        rc = _run_pkexec(cmd)
+        if rc != 0:
+            # Fallback: direct scx_loader call
+            fallback_cmd = f"scx_loader --select {scx_name}"
+            rc = _run_pkexec(fallback_cmd)
+        return rc
+
+    def set_profile(self, profile_key, callback=None):
+        """Activate all schedulers for a profile. Calls callback(success)."""
+        profile = PROFILES.get(profile_key)
+        if not profile:
+            if callable(callback):
+                callback(False, f"Unknown profile: {profile_key}")
+            return
+
+        schedulers = profile["scx_schedulers"]
+        logger.info("Switching to profile '%s': %s", profile_key, schedulers)
+
+        # Record which scheduler should be reported as current
+        # Try each in order; report success if any works.
+        last_error = "No scheduler activated"
+
+        def do_switch():
+            nonlocal last_error
+            for sched in schedulers:
+                rc = self._activate_scheduler(sched)
+                if rc == 0:
+                    self._current = sched
+                    if callable(callback):
+                        callback(True, sched)
+                    return
+                last_error = f"Failed to activate {sched} (rc={rc})"
+            logger.error("Profile switch failed: %s", last_error)
+            if callable(callback):
+                callback(False, last_error)
+
+        threading.Thread(target=do_switch, daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+# Application
+# ---------------------------------------------------------------------------
+
+class BamOSSCXApp:
+    """Main GTK+AppIndicator application."""
+
+    def __init__(self):
+        self.scx = SCXManager()
+        self.cpu = CPUMonitor()
+        self._current_profile_key = "work"  # default guess
+
+        # GTK init
+        Gtk.init(None)
+
+        # Notification init
+        if not Notify.is_initted():
+            Notify.init(APP_ID)
+
+        # Build indicator
+        self.indicator = AppIndicator.Indicator.new(
+            APP_ID,
+            ICON_DEFAULT,
+            AppIndicator.IndicatorCategory.SYSTEM_SERVICES,
+        )
+        self.indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
+
+        # Build menu
+        self._build_menu()
+
+        # Set initial tooltip
+        self._update_tooltip()
+
+        # Start polling timer
+        GLib.timeout_add_seconds(POLL_INTERVAL_SECONDS, self._on_poll)
+
+    # ------- Menu construction -------
+
+    def _build_menu(self):
+        menu = Gtk.Menu()
+
+        # Header
+        header = Gtk.MenuItem(label=APP_NAME)
+        header.set_sensitive(False)
+        menu.append(header)
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Profile items
+        self._profile_items = {}
+        for key, prof in PROFILES.items():
+            item = Gtk.CheckMenuItem(label=prof["label"])
+            item.connect("toggled", self._on_profile_toggled, key)
+            menu.append(item)
+            self._profile_items[key] = item
+
+        menu.append(Gtk.SeparatorMenuItem())
+
+        # Refresh / status
+        refresh_item = Gtk.MenuItem(label="Refresh Status")
+        refresh_item.connect("activate", lambda _: self._update_tooltip())
+        menu.append(refresh_item)
+
+        # About
+        about_item = Gtk.MenuItem(label="About")
+        about_item.connect("activate", self._on_about)
+        menu.append(about_item)
+
+        # Quit
+        quit_item = Gtk.MenuItem(label="Quit")
+        quit_item.connect("activate", self._on_quit)
+        menu.append(quit_item)
+
+        menu.show_all()
+        self.indicator.set_menu(menu)
+
+    # ------- Profile switching -------
+
+    def _set_active_profile(self, profile_key):
+        """Mark the active profile in the menu without firing toggle."""
+        self._current_profile_key = profile_key
+        for key, item in self._profile_items.items():
+            with item.handler_block_by_func(self._on_profile_toggled):
+                item.set_active(key == profile_key)
+
+    def _on_profile_toggled(self, widget, profile_key):
+        if not widget.get_active():
+            return
+        self._set_active_profile(profile_key)
+
+        # Update icon immediately to show we're transitioning
+        prof = PROFILES[profile_key]
+        self.indicator.set_icon_full(prof["icon"], prof["description"])
+        self._update_tooltip()
+
+        # Notify
+        self._notify(
+            f"Switching to {prof['label']}",
+            prof["description"],
+        )
+
+        # Do the actual switch
+        def on_done(success, info):
+            if success:
+                msg = f"Now using: {info}"
+                self._notify(f"{prof['label']} active", msg)
+                self._update_tooltip()
+            else:
+                self._notify(
+                    f"Profile switch failed",
+                    f"{info}. Check logs for details.",
+                    urgency=Notify.Urgency.CRITICAL,
+                )
+                logger.error("Switch to %s failed: %s", profile_key, info)
+
+        self.scx.set_profile(profile_key, callback=on_done)
+
+    # ------- Polling -------
+
+    def _on_poll(self):
+        """Periodic update of tooltip with CPU stats."""
+        self._update_tooltip()
+        return True  # keep the timeout alive
+
+    def _update_tooltip(self):
+        """Refresh the indicator tooltip with current CPU and scheduler info."""
+        cpu_pct = self.cpu.cpu_percent()
+        freq = self.cpu.cpu_freq_mhz()
+        temp = self.cpu.cpu_temp_celsius()
+
+        active_sched = self.scx.get_current_scheduler()
+        if active_sched:
+            # Try to match it to a profile
+            for key, prof in PROFILES.items():
+                if active_sched in prof["scx_schedulers"]:
+                    self._set_active_profile(key)
+                    break
+
+        profile_label = PROFILES.get(
+            self._current_profile_key, {}
+        ).get("label", "Unknown")
+
+        lines = [
+            f"Profile: {profile_label}",
+            f"Scheduler: {active_sched or 'N/A'}",
+            "",
+        ]
+
+        if cpu_pct is not None:
+            lines.append(f"CPU Usage: {cpu_pct:.1f}%")
+        if freq is not None:
+            lines.append(f"Frequency: {freq:.0f} MHz")
+        if temp is not None:
+            lines.append(f"Temperature: {temp:.1f} °C")
+        else:
+            lines.append("Temperature: N/A")
+
+        tooltip_text = "\n".join(lines)
+        self.indicator.set_title(tooltip_text)
+        self.indicator.set_label("", "")  # clear label to show only tooltip
+
+    # ------- Notifications -------
+
+    def _notify(self, summary, body, urgency=Notify.Urgency.NORMAL):
+        try:
+            notification = Notify.Notification.new(summary, body, APP_ID)
+            notification.set_urgency(urgency)
+            notification.set_timeout(NOTIFICATION_TIMEOUT_MS)
+            notification.show()
+        except Exception as exc:
+            logger.warning("Failed to show notification: %s", exc)
+
+    # ------- Actions -------
+
+    def _on_about(self, _widget):
+        dialog = Gtk.AboutDialog()
+        dialog.set_program_name(APP_NAME)
+        dialog.set_version("1.0.0")
+        dialog.set_comments("SCX Scheduler Manager for BamOS Linux")
+        dialog.set_copyright("© BamOS Contributors")
+        dialog.set_license_type(Gtk.License.GPL_3_0)
+        dialog.set_website("https://github.com/quocnho/bamos")
+        dialog.run()
+        dialog.destroy()
+
+    def _on_quit(self, _widget):
+        Notify.uninit()
+        Gtk.main_quit()
+
+    def run(self):
+        """Enter the GTK main loop."""
+        try:
+            Gtk.main()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            Notify.uninit()
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description=f"{APP_NAME} — CPU scheduler management systray app",
+    )
+    parser.add_argument(
+        "--profile", "-p",
+        choices=list(PROFILES.keys()),
+        help="Immediately switch to the given profile and exit",
+    )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Print current scheduler status and exit",
+    )
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable debug logging",
+    )
+    return parser.parse_args(argv)
+
+
+def main():
+    args = parse_args()
+
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format="%(name)s: %(levelname)s: %(message)s",
+    )
+
+    # Quick CLI mode: --profile or --status
+    if args.profile:
+        scx = SCXManager()
+        profile = PROFILES[args.profile]
+        scheduler_name = profile["scx_schedulers"][0]
+
+        print(f"Switching to {args.profile} profile ({scheduler_name}) ...")
+
+        def on_done(success, info):
+            if success:
+                print(f"OK: Now using scheduler '{info}'")
+                sys.exit(0)
+            else:
+                print(f"FAILED: {info}", file=sys.stderr)
+                sys.exit(1)
+
+        scx.set_profile(args.profile, callback=on_done)
+
+        # Wait for the async switch to complete
+        time.sleep(5)
+        print("TIMEOUT: Switch did not complete in time.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.status:
+        scx = SCXManager()
+        current = scx.get_current_scheduler()
+        if current:
+            print(f"Active scheduler: {current}")
+        else:
+            print("No SCX scheduler detected.")
+        sys.exit(0)
+
+    # GUI mode
+    app = BamOSSCXApp()
+    app.run()
+
+
+if __name__ == "__main__":
+    main()

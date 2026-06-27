@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# ============================================================================
+#  BamOS Linux — Terminal Welcome Message
+#
+#  Displays the BamOS ASCII art logo and system information on interactive
+#  shell login.  Sourced from /etc/skel/.bashrc.d/ so every new user gets it.
+#
+#  To disable for a single user:  touch ~/.hushlogin
+#  To disable system-wide:        chmod -x this file
+# ============================================================================
+
+# Only show on interactive login shells, skip non-TTY sessions
+if ! tty -s 2>/dev/null; then
+    return 0
+fi
+
+# ── BamOS ASCII Logo ────────────────────────────────────────────────────────
+# Two-tone: header in bold cyan, tagline in bold white
+echo -e "\e[1;36m"
+echo "    ██████╗  █████╗ ███╗   ███╗ ██████╗ ███████╗"
+echo "    ██╔══██╗██╔══██╗████╗ ████║██╔═══██╗██╔════╝"
+echo "    ██████╔╝███████║██╔████╔██║██║   ██║███████╗"
+echo "    ██╔══██╗██╔══██║██║╚██╔╝██║██║   ██║╚════██║"
+echo "    ██████╔╝██║  ██║██║ ╚═╝ ██║╚██████╔╝███████║"
+echo -e "    ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝ ╚══════╝\e[0m"
+
+echo -e "\e[1;37m"
+echo "              ╔═══╗╔═══╗╔═══╗╔═══╗╔═══╗"
+echo "              ╚══╗║║╔═╗║║╔═╗║╚══╗║║╔═╗║"
+echo "              ╔══╝║║╚═╝║║╚═╝║╔══╝║║╚═╝║"
+echo "              ╚═══╝╚═══╝╚═══╝╚═══╝╚═══╝"
+echo -e "\e[0m"
+
+# ── System info ─────────────────────────────────────────────────────────────
+echo -e "\e[1;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\e[0m"
+printf "\e[1;37m  Welcome to \e[1;36mBamOS Linux\e[1;37m — Atomic & Immutable\e[0m\n"
+printf "\e[1;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\e[0m\n"
+echo ""
+
+# Collect system info (fail gracefully if a command is missing)
+KERNEL="$(uname -r 2>/dev/null || echo 'unknown')"
+HOSTNAME="$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo 'unknown')"
+UPTIME="$(uptime -p 2>/dev/null | sed 's/^up //' || echo 'unknown')"
+PACKAGES="$(rpm -qa 2>/dev/null | wc -l || echo '?')"
+MEM_TOTAL="$(free -h 2>/dev/null | awk '/^Mem:/ {print $2}' || echo '?')"
+DISK_USAGE="$(df -h / 2>/dev/null | awk 'NR==2 {print $3 " / " $2 " (" $5 ")"}' || echo '?')"
+
+echo -e "  \e[1;37mOS:\e[0m        BamOS Linux (Fedora Atomic)"
+echo -e "  \e[1;37mKernel:\e[0m    $KERNEL"
+echo -e "  \e[1;37mHostname:\e[0m  $HOSTNAME"
+echo -e "  \e[1;37mUptime:\e[0m    $UPTIME"
+echo -e "  \e[1;37mPackages:\e[0m  $PACKAGES"
+echo -e "  \e[1;37mMemory:\e[0m    $MEM_TOTAL"
+echo -e "  \e[1;37mDisk /:\e[0m    $DISK_USAGE"
+echo ""
+echo -e "\e[1;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\e[0m"
+echo -e "  \e[1;37mDocs:\e[0m  \e[36mhttps://github.com/quocnho/bamos\e[0m"
+echo -e "  \e[1;37mHelp:\e[0m  \e[36mbamos --help\e[0m       \e[1;37m|\e[0m  \e[36mjust --list\e[0m"
+echo -e "\e[1;36m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\e[0m"
+echo ""

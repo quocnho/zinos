@@ -9,14 +9,11 @@ IMAGE_NAME="${IMAGE_NAME:-bamos}"
 echo "bamos" > /etc/hostname
 
 # ── Generate ISO config for Titanoboa (bootc-image-builder) ───────────────────
-# This file is required by ublue-os/titanoboa to generate bootable ISOs
 mkdir -p /usr/lib/bootc-image-builder
 
-# Derive edition name from IMAGE_NAME (e.g. bamos-kde-nvidia → KDE-NVIDIA)
 EDITION=$(echo "$IMAGE_NAME" | sed 's/^bamos-//' | tr '[:lower:]' '[:upper:]')
 ISO_LABEL="BAMOS-${EDITION}"
 
-# Map IMAGE_NAME to human-readable display name
 case "$IMAGE_NAME" in
     *-kde-nvidia*)    DISPLAY="BamOS KDE Plasma (NVIDIA)" ;;
     *-kde*)           DISPLAY="BamOS KDE Plasma" ;;
@@ -43,11 +40,8 @@ EOF
 echo "Generated /usr/lib/bootc-image-builder/iso.yaml for ${DISPLAY} (label: ${ISO_LABEL})"
 
 # ── Setup EFI directory for Titanoboa ISO generation ─────────────────────────
-# Titanoboa's build_iso.sh expects /boot/efi/EFI with shim + grub EFI binaries.
-# In container builds, this dir may not be auto-created by packages.
 mkdir -p /boot/efi/EFI/fedora
 
-# Find and copy EFI binaries from RPM-installed locations
 for src in \
     "/usr/lib/efi/shim/shimx64.efi" \
     "/usr/lib/efi/shim/mmx64.efi" \
@@ -57,28 +51,24 @@ for src in \
   fi
 done
 
-# Try rpm -ql as fallback to find EFI files
 for pkg in shim-x64 grub2-efi-x64; do
   rpm -ql "$pkg" 2>/dev/null | grep '\.efi' | while read -r f; do
     cp -av "$f" /boot/efi/EFI/fedora/ 2>/dev/null || true
   done || true
 done
 
-# If still empty, copy from /boot as fallback
 if [ -z "$(ls -A /boot/efi/EFI/fedora/ 2>/dev/null)" ]; then
   find /boot -name '*.efi' -exec cp -av {} /boot/efi/EFI/fedora/ \; 2>/dev/null || true
 fi
 
 ls -la /boot/efi/EFI/fedora/ 2>/dev/null || echo "WARNING: No EFI binaries found — ISO may not be bootable"
 
-# ── Rename real dnf5 and create wrappers (like RakuOS) ──────────────────────
-# Only create wrappers for installed system (not during container build)
-if ! findmnt /usr | grep -q overlay; then
-    mv /usr/bin/dnf5 /usr/bin/dnf5.real 2>/dev/null || true
-    mv /usr/bin/dnf /usr/bin/dnf.real 2>/dev/null || true
+# ── Rename real dnf5 and create wrappers ──────────────────────────────────────
+mv /usr/bin/dnf5 /usr/bin/dnf5.real 2>/dev/null || true
+mv /usr/bin/dnf /usr/bin/dnf.real 2>/dev/null || true
 
-    # Create dnf5 wrapper that routes install/remove/update through bamos
-    cat > /usr/bin/dnf5 << 'WRAPPER'
+# Create dnf5 wrapper that routes install/remove/update through bamos
+cat > /usr/bin/dnf5 << 'WRAPPER'
 #!/usr/bin/env bash
 COMMAND="${1:-}"
 case "$COMMAND" in
@@ -100,16 +90,60 @@ case "$COMMAND" in
 esac
 WRAPPER
 
-    # Create dnf wrapper
-    cat > /usr/bin/dnf << 'WRAPPER'
+# Create dnf wrapper
+cat > /usr/bin/dnf << 'WRAPPER'
 #!/usr/bin/env bash
 exec /usr/bin/dnf5 "$@"
 WRAPPER
 
-    chmod +x /usr/bin/dnf5 /usr/bin/dnf
-    echo "dnf5 wrappers created (installed system detected)."
-else
-    echo "Container build detected — skipping dnf5 wrappers."
+chmod +x /usr/bin/dnf5 /usr/bin/dnf
+echo "dnf5 wrappers created."
+
+# ── Mark base packages as dependency ──────────────────────────────────────────
+echo "Marking base image packages as dependency..."
+dnf5.real -y mark dependency $(rpm -qa --qf '%{NAME} ') --skip-unavailable 2>/dev/null || true
+
+# ── Seed overlay state for first-boot ─────────────────────────────────────────
+echo "Seeding overlay state for first-boot install..."
+DEFAULT_PACKAGES_LIST="/usr/share/bamos/packages.list"
+PACKAGES_LIST="/var/lib/bamos/packages.list"
+UPPER_DIR="/var/lib/bamos/overlay/upper"
+WORK_DIR="/var/lib/bamos/overlay/work"
+STATE_FILE="/var/lib/bamos/overlay.state"
+
+mkdir -p /var/lib/bamos
+mkdir -p "$UPPER_DIR"
+mkdir -p "$WORK_DIR"
+
+# Seed packages.list from default if it exists
+if [[ -f "$DEFAULT_PACKAGES_LIST" ]]; then
+    cp "$DEFAULT_PACKAGES_LIST" "$PACKAGES_LIST"
+    echo "packages.list seeded from defaults."
 fi
+
+# Ensure state is absent to trigger full install on first boot
+rm -f "$STATE_FILE"
+echo "overlay.state cleared — first boot will install packages."
+
+# Ensure packages.list ends with newline
+sed -i -e '$a\' /var/lib/bamos/packages.list 2>/dev/null || true
+
+# ── Generate base package manifest ────────────────────────────────────────────
+echo "Generating base package manifest..."
+/usr/libexec/bamos/bamos-generate-base-manifest
+
+# ── Enable BamOS services ────────────────────────────────────────────────────
+echo "Enabling BamOS systemd services..."
+systemctl enable bamos-overlay-mount.service
+systemctl enable bamos-overlay-sync.service
+systemctl enable bamos-overlay-services.service
+systemctl enable bamos-base-protect.service
+systemctl enable bamos-flatpaks.service
+systemctl enable bamos-flatpak-watcher.service
+systemctl enable bamos-cache-clean.timer
+
+# Clean up rpm-ostree services from base (we don't use them)
+systemctl disable rpm-ostree-clean-metadata.timer 2>/dev/null || true
+systemctl disable rpm-ostree-clean-deployments.timer 2>/dev/null || true
 
 echo "=== BamOS: Post-Build Complete ==="

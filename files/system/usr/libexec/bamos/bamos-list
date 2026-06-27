@@ -1,7 +1,39 @@
 #!/usr/bin/env bash
+# BamOS List Installed Packages
+# Lists packages installed into the overlay (not base image).
+#
+# Usage: bamos list [--all]
+
 set -euo pipefail
 
-echo "Installed packages (layered on base image):"
-rpm-ostree status 2>/dev/null | grep -A999 "LayeredPackages:" | tail -n +2 || echo "  No layered packages."
+PACKAGES_LIST="/var/lib/bamos/packages.list"
+
+echo "╔══════════════════════════════════════╗"
+echo "║     BamOS Installed Packages         ║"
+echo "╚══════════════════════════════════════╝"
+
+if [[ ! -f "$PACKAGES_LIST" ]]; then
+    echo "No overlay packages installed."
+    echo "Install packages with: sudo bamos install <package>"
+    exit 0
+fi
+
 echo ""
-echo "To see all system packages, use: rpm -qa | sort"
+echo "Overlay packages:"
+echo "────────────────────────────────────────"
+PKG_COUNT=0
+while IFS= read -r pkg || [[ -n "$pkg" ]]; do
+    [[ "$pkg" =~ ^#.*$ || -z "$pkg" ]] && continue
+    PKG_COUNT=$((PKG_COUNT + 1))
+    if rpm -q "$pkg" &>/dev/null; then
+        VER=$(rpm -q --queryformat '%{VERSION}-%{RELEASE}\n' "$pkg" 2>/dev/null || echo "?")
+        printf "  %-30s %s\n" "$pkg" "$VER"
+    else
+        printf "  %-30s %s\n" "$pkg" "(not installed)"
+    fi
+done < "$PACKAGES_LIST"
+
+echo ""
+echo "Total: $PKG_COUNT packages"
+echo ""
+echo "All system packages: dnf list installed"

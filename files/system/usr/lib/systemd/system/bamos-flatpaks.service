@@ -1,0 +1,14 @@
+[Unit]
+Description=BamOS Flatpak Setup — install predefined Flatpaks
+After=bamos-overlay-sync.service network-online.target
+Wants=network-online.target
+ConditionPathExists=!/run/ostree-booted
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/bamos/system-flatpak-setup
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# BamOS Overlay Mount
+# Mounts a persistent overlayfs on /usr so that packages installed via
+# `bamos install` survive bootc updates.
+#
+# Overlay structure:
+#   /var/lib/bamos/overlay/upper   — writable layer (survives updates)
+#   /var/lib/bamos/overlay/work    — overlayfs work dir
+#   /usr (lower dir)               — base image (immutable)
+#
+# These dirs are on /var which is a persistent ostree state partition.
+
+set -euo pipefail
+
+UPPER_DIR="/var/lib/bamos/overlay/upper"
+WORK_DIR="/var/lib/bamos/overlay/work"
+MOUNT_POINT="/usr"
+STATE_FILE="/var/lib/bamos/overlay.state"
+
+# ── Check if already mounted ──────────────────────────────────────────────────
+if mountpoint -q "$MOUNT_POINT"; then
+    # Check if it's our overlay (not the base ostree mount)
+    if grep -q "overlay" /proc/mounts | grep -q "$MOUNT_POINT"; then
+        echo "[bamos] Overlay already mounted on $MOUNT_POINT"
+        exit 0
+    fi
+fi
+
+# ── Initialise overlay dirs ───────────────────────────────────────────────────
+mkdir -p "$UPPER_DIR"
+mkdir -p "$WORK_DIR"
+
+# Ensure selinux context is correct
+if command -v selinuxenabled &>/dev/null && selinuxenabled; then
+    restorecon -RF "$UPPER_DIR" "$WORK_DIR" 2>/dev/null || true
+fi
+
+# ── Mount overlayfs ───────────────────────────────────────────────────────────
+echo "[bamos] Mounting persistent overlay on $MOUNT_POINT..."
+mount -t overlay \
+    -o lowerdir="$MOUNT_POINT",upperdir="$UPPER_DIR",workdir="$WORK_DIR" \
+    overlay "$MOUNT_POINT"
+
+# Mark overlay as dirty (packages may have been installed)
+touch /var/lib/bamos/overlay.dirty
+
+echo "[bamos] Overlay mounted successfully."
+
+# Record state
+echo "mounted" > "$STATE_FILE"

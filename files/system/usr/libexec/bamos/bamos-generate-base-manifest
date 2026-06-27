@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# BamOS Generate Base Manifest
+# Generates a manifest of all packages in the base image.
+# This is used by bamos-base-protect to know which packages
+# should be protected from removal.
+#
+# Runs during container build (in Containerfile) and on first boot.
+
+set -euo pipefail
+
+MANIFEST_DIR="/usr/share/bamos"
+MANIFEST_FILE="$MANIFEST_DIR/base-packages.txt"
+PROTECTED_FILE="$MANIFEST_DIR/protected-packages.txt"
+
+mkdir -p "$MANIFEST_DIR"
+
+echo "[bamos] Generating base package manifest..."
+rpm -qa --queryformat '%{NAME}\n' --qf '%{NAME}\n' | sort -u > "$MANIFEST_FILE"
+echo "[bamos] Base manifest: $(wc -l < "$MANIFEST_FILE") packages."
+
+# Also generate protected-packages.txt from the manifest if it doesn't exist
+if [[ ! -f "$PROTECTED_FILE" ]]; then
+    echo "[bamos] Generating protected-packages.txt from base manifest..."
+    # Extract packages that are marked as "install" (not dependency)
+    dnf5.real repoquery --installed --qf '%{NAME}' 2>/dev/null | sort -u > "$PROTECTED_FILE" || true
+    echo "[bamos] Protected: $(wc -l < "$PROTECTED_FILE") packages."
+fi
+
+echo "[bamos] Base manifest generated."

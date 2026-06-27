@@ -1,0 +1,160 @@
+/* ============================================================================
+ *  BamOS Linux — Plymouth Boot Splash Script
+ *
+ *  A clean, minimal spinner theme with logo display and boot message.
+ *  Background: dark gradient (charcoal).
+ *  Logo: centered BamOS logo (bamos-logo.png) or fallback text.
+ *  Spinner: 12-frame rotating dash animation below the logo.
+ *  Message: boot status text at the bottom.
+ * ============================================================================ */
+
+/* ── Colour palette ──────────────────────────────────────────────────────── */
+global.BG_TOP    = 0.08;   /* #141416 — near-black charcoal */
+global.BG_BOTTOM = 0.12;   /* #1e1e22 — slightly lighter */
+global.LOGO_TOP  = 0.00;
+global.LOGO_BOTTOM = 0.00;
+global.FG_COLOR  = 0.82;   /* #d1d1d1 — light grey text */
+global.SPINNER_COLOR = 0.45;  /* spinner grey */
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
+global.WIDTH  = Window.GetWidth();
+global.HEIGHT = Window.GetHeight();
+global.CENTER_X = global.WIDTH / 2;
+global.CENTER_Y = global.HEIGHT / 2;
+
+/* ── Theme elements ──────────────────────────────────────────────────────── */
+
+/* Background */
+global.background = Window.SetBackgroundTopColor(global.BG_TOP,
+                                                  global.BG_TOP,
+                                                  global.BG_TOP);
+global.background = Window.SetBackgroundBottomColor(global.BG_BOTTOM,
+                                                     global.BG_BOTTOM,
+                                                     global.BG_BOTTOM);
+
+/* Logo image — centred slightly above the vertical centre */
+global.logo = Image("bamos-logo.png");
+global.logo_x = global.CENTER_X - (global.logo.GetWidth() / 2);
+global.logo_y = global.CENTER_Y - global.logo.GetHeight() - 30;
+global.logo_sprite = Sprite(global.logo);
+global.logo_sprite.SetPosition(global.logo_x, global.logo_y, 0);
+global.logo_sprite.SetOpacity(1.0);
+
+/* Spinner — rotating dash animation below the logo */
+global.spinner_frames = 12;
+global.spinner_radius = 16;
+global.spinner_x = global.CENTER_X;
+global.spinner_y = global.CENTER_Y + 20;
+global.spinner_size = 6;
+
+/* ── Helper: draw a single spinner dash at a given angle ─────────────────── */
+fun.draw_dash (angle)
+{
+    local.rad = angle * (Math.Pi() / 180);
+    local.x = global.spinner_x + Math.Cos(local.rad) * global.spinner_radius;
+    local.y = global.spinner_y + Math.Sin(local.rad) * global.spinner_radius;
+
+    /* Each dash is a small filled circle */
+    local.dash = Sprite();
+    local.dash.SetPosition(x, y, 1);
+    local.dash.SetArea(x - global.spinner_size,
+                       y - global.spinner_size,
+                       global.spinner_size * 2,
+                       global.spinner_size * 2);
+    local.dash.SetOpacity(1.0);
+    return local.dash;
+}
+
+/* ── Boot message text ───────────────────────────────────────────────────── */
+global.boot_message = Text("");
+global.boot_message.SetFontFace("Noto Sans");
+global.boot_message.SetFontSize(14);
+global.boot_message.SetColor(global.FG_COLOR, global.FG_COLOR, global.FG_COLOR);
+global.boot_message.SetPosition(global.CENTER_X, global.HEIGHT - 80, 2);
+global.boot_message.SetAlignment(PlymouthTextAlignment.CENTER);
+
+/* ── Thin horizontal separator line ──────────────────────────────────────── */
+global.separator = Sprite();
+global.separator_x1 = global.CENTER_X - 120;
+global.separator_x2 = global.CENTER_X + 120;
+global.separator_y = global.HEIGHT - 110;
+global.separator.SetPosition(global.separator_x1, global.separator_y, 1);
+global.separator.SetArea(global.separator_x1,
+                         global.separator_y,
+                         global.separator_x2 - global.separator_x1,
+                         1);
+global.separator.SetOpacity(0.3);
+
+/* ── Sprites for the spinner animation ───────────────────────────────────── */
+global.dashes = {};
+
+for (global.i = 0; global.i < global.spinner_frames; global.i++)
+{
+    global.dashes[global.i] = {};
+    for (global.j = 0; global.j < 12; global.j++)
+    {
+        global.angle = (360 / 12) * global.j;
+        global.dashes[global.i][global.j] = fun.draw_dash(global.angle);
+    }
+}
+
+/* ── Animation state ─────────────────────────────────────────────────────── */
+global.current_frame = 0;
+global.hidden = false;
+
+/* ── Callbacks ───────────────────────────────────────────────────────────── */
+
+/* Update boot message from Plymouth */
+Plymouth.SetUpdateFunction(function()
+{
+    /* Read the current boot status */
+    global.status = Plymouth.GetStatus();
+    if (global.status)
+    {
+        global.boot_message.SetText(global.status);
+    }
+});
+
+/* Hide splash when Plymouth transitions to display-manager */
+Plymouth.SetDisplayPasswordFunction(function()
+{
+    if (!global.hidden)
+    {
+        global.hidden = true;
+        global.logo_sprite.SetOpacity(0.0);
+        global.boot_message.SetOpacity(0.0);
+        global.separator.SetOpacity(0.0);
+    }
+});
+
+/* ── Main animation loop ─────────────────────────────────────────────────── */
+fun.refresh ()
+{
+    if (global.hidden)
+    {
+        return;
+    }
+
+    /* Hide all dashes */
+    for (global.i = 0; global.i < 12; global.i++)
+    {
+        global.dashes[global.current_frame][global.i].SetOpacity(0.0);
+    }
+
+    /* Advance to next frame */
+    global.current_frame = (global.current_frame + 1) % global.spinner_frames;
+
+    /* Show dashes for the current frame with fading brightness */
+    for (global.i = 0; global.i < 12; global.i++)
+    {
+        global.brightness = (global.i + 1) / 12.0;
+        global.dashes[global.current_frame][global.i].SetOpacity(0.2 + 0.8 * global.brightness);
+    }
+
+    /* Schedule next refresh (~60 FPS → 16 ms per frame → 192 ms per revolution) */
+    Plymouth.SetRefreshFunction(fun.refresh);
+    return;
+}
+
+/* Kick off the animation */
+Plymouth.SetRefreshFunction(fun.refresh);

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# BamOS Base Protect
+# Marks all base image packages as "dependency" so that PackageKit/dnf
+# only manage overlay-installed packages for install/remove operations.
+# This prevents accidental removal of base system packages.
+
+set -euo pipefail
+
+PROTECTED_FILE="/usr/share/bamos/protected-packages.txt"
+
+if [[ ! -f "$PROTECTED_FILE" ]]; then
+    echo "[bamos] No protected-packages.txt found — skipping."
+    exit 0
+fi
+
+echo "[bamos] Protecting base image packages from accidental removal..."
+
+# Read protected packages and mark them as user-installed
+# (this prevents dnf from removing them as orphans)
+while IFS= read -r pkg || [[ -n "$pkg" ]]; do
+    # Skip comments and empty lines
+    [[ "$pkg" =~ ^#.*$ || -z "$pkg" ]] && continue
+    if rpm -q "$pkg" &>/dev/null; then
+        dnf5.real mark install "$pkg" --skip-unavailable 2>/dev/null || true
+    fi
+done < "$PROTECTED_FILE"
+
+echo "[bamos] Base packages protected."

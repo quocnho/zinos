@@ -1,18 +1,46 @@
 #!/usr/bin/env bash
+# BamOS System Update
+# Updates both:
+# 1. Base system image via bootc
+# 2. Overlay packages via dnf
+#
+# Usage: bamos update [--full]
+
 set -euo pipefail
 
-echo "Checking for updates..."
-
-# Update layered packages
-if rpm-ostree status 2>/dev/null | grep -q "LayeredPackages"; then
-    echo "Updating layered packages..."
-    rpm-ostree update -y 2>/dev/null || true
+FULL_UPDATE=false
+if [[ "${1:-}" == "--full" ]]; then
+    FULL_UPDATE=true
 fi
 
-# Check for bootc image updates
-echo "Checking system image updates..."
-if bootc upgrade --check 2>&1 | grep -q "No changes"; then
-    echo "System is up to date."
+echo "╔══════════════════════════════════════╗"
+echo "║     BamOS System Update              ║"
+echo "╚══════════════════════════════════════╝"
+
+# ── Step 1: Update overlay packages ───────────────────────────────────────────
+echo ""
+echo "▶ Step 1/2: Updating overlay packages..."
+if mountpoint -q /usr; then
+    dnf5.real upgrade -y 2>&1 || echo "[bamos] WARNING: Package update had issues."
 else
-    echo "System image update available. Run 'sudo bamos system-upgrade' to apply."
+    echo "[bamos] /usr not overlay-mounted — skipping package update."
 fi
+
+# ── Step 2: Update base image ─────────────────────────────────────────────────
+if [[ "$FULL_UPDATE" == "true" ]]; then
+    echo ""
+    echo "▶ Step 2/2: Checking for base image update..."
+    echo "[bamos] Running: bootc upgrade"
+    bootc upgrade
+    echo ""
+    echo "⚠️  Base image update applied."
+    echo "   Reboot to activate the new deployment."
+    echo "   Run: sudo systemctl reboot"
+else
+    echo ""
+    echo "▶ To also update the base system image, run:"
+    echo "   sudo bamos system-upgrade"
+fi
+
+echo ""
+echo "✅ Update complete."

@@ -42,6 +42,35 @@ grub2:
 EOF
 echo "Generated /usr/lib/bootc-image-builder/iso.yaml for ${DISPLAY} (label: ${ISO_LABEL})"
 
+# ── Setup EFI directory for Titanoboa ISO generation ─────────────────────────
+# Titanoboa's build_iso.sh expects /boot/efi/EFI with shim + grub EFI binaries.
+# In container builds, this dir may not be auto-created by packages.
+mkdir -p /boot/efi/EFI/fedora
+
+# Find and copy EFI binaries from RPM-installed locations
+for src in \
+    "/usr/lib/efi/shim/shimx64.efi" \
+    "/usr/lib/efi/shim/mmx64.efi" \
+    "/usr/lib/efi/grub/grubx64.efi"; do
+  if [ -f "$src" ]; then
+    cp -av "$src" /boot/efi/EFI/fedora/
+  fi
+done
+
+# Try rpm -ql as fallback to find EFI files
+for pkg in shim-x64 grub2-efi-x64; do
+  rpm -ql "$pkg" 2>/dev/null | grep '\.efi' | while read -r f; do
+    cp -av "$f" /boot/efi/EFI/fedora/ 2>/dev/null || true
+  done || true
+done
+
+# If still empty, copy from /boot as fallback
+if [ -z "$(ls -A /boot/efi/EFI/fedora/ 2>/dev/null)" ]; then
+  find /boot -name '*.efi' -exec cp -av {} /boot/efi/EFI/fedora/ \; 2>/dev/null || true
+fi
+
+ls -la /boot/efi/EFI/fedora/ 2>/dev/null || echo "WARNING: No EFI binaries found — ISO may not be bootable"
+
 # ── Rename real dnf5 and create wrappers (like RakuOS) ──────────────────────
 # Only create wrappers for installed system (not during container build)
 if ! findmnt /usr | grep -q overlay; then

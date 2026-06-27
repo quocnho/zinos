@@ -206,7 +206,7 @@ jobs:
 
       - name: Send email
         if: always()
-        uses: dawidd6/action-send-mail@v4
+        uses: dawidd6/action-send-mail@v18
         with:
           server_address: smtp.gmail.com
           server_port: 587
@@ -341,7 +341,7 @@ jobs:
 
       - name: Send release email
         if: success()
-        uses: dawidd6/action-send-mail@v4
+        uses: dawidd6/action-send-mail@v18
         with:
           server_address: smtp.gmail.com
           server_port: 587

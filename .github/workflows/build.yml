@@ -61,9 +61,14 @@ jobs:
           pr_event_number: ${{ github.event.number }}
           maximize_build_space: true
 
+      - name: Login to Quay.io (for re-tag push)
+        env:
+          QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
+        run: |
+          echo "$QUAY_TOKEN" | sudo podman login quay.io -u "${{ secrets.QUAY_USERNAME }}" --password-stdin
+
       - name: Tag and push with short names (quay.io/quocnho/bamos:<edition>)
         run: |
-          # Extract: bamos-gnome-nvidia.yml → gnome-nvidia
           RECIPE="${{ matrix.recipe }}"
           NAME="${RECIPE%.yml}"
           EDITION="${NAME#bamos-}"

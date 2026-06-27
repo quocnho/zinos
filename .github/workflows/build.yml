@@ -84,7 +84,7 @@ jobs:
         id: build
         uses: blue-build/github-action@v1.11
         with:
-          recipe: recipes/${{ matrix.edition.recipe }}
+          recipe: ${{ matrix.edition.recipe }}
           cosign_private_key: ${{ secrets.SIGNING_SECRET }}
           registry: ${{ env.IMAGE_REGISTRY }}
           registry_namespace: ${{ env.IMAGE_NAMESPACE }}

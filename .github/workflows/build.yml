@@ -121,13 +121,6 @@ jobs:
         id: registry
         run: echo "lowercase=${IMAGE_REGISTRY,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Derive edition tag (bamos-kde → kde)
-        id: edition
-        run: |
-          NAME="${{ matrix.edition.name }}"
-          TAG="${NAME#bamos-}"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
       - name: Login to Quay.io (podman)
         env:
           QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
@@ -141,7 +134,7 @@ jobs:
 
       - name: Pull image for Titanoboa
         run: |
-          IMG="${{ steps.registry.outputs.lowercase }}/bamos:${{ steps.edition.outputs.tag }}"
+          IMG="${{ steps.registry.outputs.lowercase }}/${{ matrix.edition.name }}:latest"
           echo "Pulling $IMG into podman storage..."
           sudo podman pull "$IMG"
 
@@ -149,7 +142,7 @@ jobs:
         id: generate
         uses: ublue-os/titanoboa@main
         with:
-          image-ref: ${{ steps.registry.outputs.lowercase }}/bamos:${{ steps.edition.outputs.tag }}
+          image-ref: ${{ steps.registry.outputs.lowercase }}/${{ matrix.edition.name }}:latest
           iso-dest: ${{ github.workspace }}/${{ matrix.edition.iso-label }}-${{ github.ref_name }}-amd64.iso
 
       - name: Get ISO file size

@@ -3,7 +3,6 @@ Description=BamOS Overlay Mount — mount persistent overlay on /usr
 DefaultDependencies=no
 After=systemd-remount-fs.service
 Before=local-fs.target
-ConditionPathExists=!/run/ostree-booted
 
 [Service]
 Type=oneshot

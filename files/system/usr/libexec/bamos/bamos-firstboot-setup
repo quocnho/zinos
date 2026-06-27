@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# BamOS First Boot Setup — runs once after first install or reset
+# Merges: overlay-sync + base-protect + flatpak-setup + overlay-services
+set -euo pipefail
+
+STATE_FILE="/var/lib/bamos/overlay.state"
+SETUP_DONE="/var/lib/bamos/setup-done"
+PACKAGES_LIST="/var/lib/bamos/packages.list"
+
+# ── Skip if already done ──────────────────────────────────────────────────────
+if [[ -f "$SETUP_DONE" ]]; then
+    echo "[bamos] First-boot setup already completed. Skipping."
+    exit 0
+fi
+
+echo "╔══════════════════════════════════════╗"
+echo "║   BamOS First Boot Setup             ║"
+echo "╚══════════════════════════════════════╝"
+
+# ── Step 1: Verify overlay ────────────────────────────────────────────────────
+if ! mountpoint -q /usr; then
+    echo "[bamos] ERROR: /usr not mounted — overlay may not be active."
+    exit 1
+fi
+
+# ── Step 2: Protect base packages ─────────────────────────────────────────────
+echo ""
+echo "▶ Step 1/4: Protecting base packages..."
+PROTECTED_FILE="/usr/share/bamos/protected-packages.txt"
+if [[ -f "$PROTECTED_FILE" ]]; then
+    while IFS= read -r pkg || [[ -n "$pkg" ]]; do
+        [[ "$pkg" =~ ^#.*$ || -z "$pkg" ]] && continue
+        rpm -q "$pkg" &>/dev/null && dnf5.real mark install "$pkg" --skip-unavailable 2>/dev/null || true
+    done < "$PROTECTED_FILE"
+fi
+
+# ── Step 3: Install overlay packages ──────────────────────────────────────────
+echo ""
+echo "▶ Step 2/4: Installing overlay packages..."
+if [[ -f "$PACKAGES_LIST" ]]; then
+    PKG_COUNT=$(grep -v '^\s*#' "$PACKAGES_LIST" | grep -v '^\s*$' | wc -l)
+    if [[ "$PKG_COUNT" -gt 0 ]]; then
+        echo "Installing $PKG_COUNT packages..."
+        PKGS=$(grep -v '^\s*#' "$PACKAGES_LIST" | grep -v '^\s*$' | tr '\n' ' ')
+        dnf5.real install -y $PKGS 2>&1 || echo "[bamos] WARNING: Some packages failed to install"
+    fi
+fi
+
+# ── Step 4: Install system Flatpaks ───────────────────────────────────────────
+echo ""
+echo "▶ Step 3/4: Installing Flatpaks..."
+for LIST in "/etc/bamos/flatpaks.list" "/usr/share/bamos/flatpaks.list"; do
+    [[ -f "$LIST" ]] || continue
+    while IFS= read -r app || [[ -n "$app" ]]; do
+        [[ "$app" =~ ^#.*$ || -z "$app" ]] && continue
+        flatpak info "$app" &>/dev/null || \
+            flatpak install -y --noninteractive flathub "$app" 2>&1 || true
+    done < "$LIST"
+done
+
+# ── Step 5: Finalize ──────────────────────────────────────────────────────────
+echo ""
+echo "▶ Step 4/4: Finalizing..."
+touch "$SETUP_DONE"
+echo "done" > "$STATE_FILE"
+echo ""
+echo "✅ BamOS first-boot setup complete!"

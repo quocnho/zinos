@@ -11,6 +11,11 @@ on:
       - "LICENSE"
       - ".github/ISSUE_TEMPLATE/**"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "LICENSE"
+      - ".github/ISSUE_TEMPLATE/**"
   workflow_dispatch:
     inputs:
       build_iso:
@@ -24,13 +29,15 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE_REGISTRY: quay.io/quocnho
+  IMAGE_REGISTRY: quay.io
+  IMAGE_NAMESPACE: quocnho
   R2_PUBLIC_URL: https://dl.bamos.info
+  FEDORA_VERSION: 44
 
 jobs:
-  # ── Job 1: Build & push 6 container images ───────────────────────────────────
+  # ── Job 1: Build & push 6 container images (3 DE × 2 GPU) ──────────────────
   build-images:
-    name: Build ${{ matrix.recipe }}
+    name: ${{ matrix.edition.name }}${{ matrix.nvidia && '-nvidia' || '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -38,28 +45,34 @@ jobs:
       id-token: write
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 3
       matrix:
-        recipe:
-          - bamos-kde.yml
-          - bamos-kde-nvidia.yml
-          - bamos-gnome.yml
-          - bamos-gnome-nvidia.yml
-          - bamos-cosmic.yml
-          - bamos-cosmic-nvidia.yml
+        edition:
+          - name: bamos-kde
+            recipe: bamos-kde.yml
+          - name: bamos-gnome
+            recipe: bamos-gnome.yml
+          - name: bamos-cosmic
+            recipe: bamos-cosmic.yml
+        nvidia: [false, true]
     steps:
-      - name: Build Custom Image
-        id: build
-        uses: blue-build/github-action@v1.11
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore podman cache
+        uses: actions/cache@v4
         with:
-          recipe: ${{ matrix.recipe }}
-          cosign_private_key: ${{ secrets.SIGNING_SECRET }}
-          registry: quay.io
-          registry_namespace: quocnho
-          registry_username: ${{ secrets.QUAY_USERNAME }}
-          registry_token: ${{ secrets.QUAY_TOKEN }}
-          pr_event_number: ${{ github.event.number }}
-          maximize_build_space: true
+          path: /var/lib/containers/storage
+          key: podman-${{ matrix.edition.name }}-${{ matrix.nvidia }}-${{ hashFiles('files/scripts/*.sh', 'recipes/*.yml', 'files/system/**', 'files/kde-system/**', 'files/gnome-system/**', 'files/cosmic-system/**', '.github/workflows/build.yml') }}
+          restore-keys: |
+            podman-${{ matrix.edition.name }}-${{ matrix.nvidia }}-
+            podman-${{ matrix.edition.name }}-
+
+      - name: Set IMAGE_NAME
+        run: |
+          NAME="${{ matrix.edition.name }}${{ matrix.nvidia && '-nvidia' || '' }}"
+          echo "IMAGE_NAME=$NAME" >> "$GITHUB_ENV"
+          echo "Built image: ${NAME}"
 
       - name: Login to Quay.io
         env:
@@ -67,20 +80,31 @@ jobs:
         run: |
           echo "$QUAY_TOKEN" | sudo podman login quay.io -u "${{ secrets.QUAY_USERNAME }}" --password-stdin
 
-      - name: Pull, tag and push to quay.io/quocnho/bamos:<edition>
-        run: |
-          RECIPE="${{ matrix.recipe }}"
-          NAME="${RECIPE%.yml}"
-          EDITION="${NAME#bamos-}"
-          SRC="quay.io/quocnho/${NAME}:latest"
-          DST="quay.io/quocnho/bamos:${EDITION}"
-          echo "Pulling $SRC..."
-          sudo podman pull "$SRC"
-          sudo podman tag "$SRC" "$DST"
-          echo "Pushing $DST..."
-          sudo podman push "$DST"
+      - name: Build Custom Image
+        id: build
+        uses: blue-build/github-action@v1.11
+        with:
+          recipe: recipes/${{ matrix.edition.recipe }}
+          cosign_private_key: ${{ secrets.SIGNING_SECRET }}
+          registry: ${{ env.IMAGE_REGISTRY }}
+          registry_namespace: ${{ env.IMAGE_NAMESPACE }}
+          registry_username: ${{ secrets.QUAY_USERNAME }}
+          registry_token: ${{ secrets.QUAY_TOKEN }}
+          pr_event_number: ${{ github.event.number }}
+          maximize_build_space: true
 
-  # ── Job 2: Generate ISOs (weekly or manual) ─────────────────────────────────
+      - name: Retag and push as quay.io/${{ env.IMAGE_NAMESPACE }}/bamos:<name>
+        run: |
+          NAME="${{ matrix.edition.name }}${{ matrix.nvidia && '-nvidia' || '' }}"
+          EDITION="${NAME#bamos-}"
+          SRC="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${NAME}:latest"
+          DST="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/bamos:${EDITION}"
+          # Tag locally (no pull needed — image is already in local storage)
+          sudo podman tag "$SRC" "$DST"
+          sudo podman push "$DST"
+          echo "Pushed $DST"
+
+  # ── Job 2: Generate ISOs ──────────────────────────────────────────────────
   build-isos:
     if: |
       always() && (
@@ -97,7 +121,7 @@ jobs:
       attestations: write
     strategy:
       fail-fast: false
-      max-parallel: 1
+      max-parallel: 2
       matrix:
         edition:
           - name: bamos-kde
@@ -118,56 +142,33 @@ jobs:
         with:
           tool-cache: false
 
-      - name: Set lower-case registry
-        id: registry
-        run: echo "lowercase=${IMAGE_REGISTRY,,}" >> "$GITHUB_OUTPUT"
-
-      - name: Login to Quay.io (podman)
+      - name: Login to Quay.io
         env:
           QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
         run: |
-          # Titanoboa uses sudo podman internally, login at system level
-          if [ -z "$QUAY_TOKEN" ]; then
-            echo "⚠️ QUAY_TOKEN not set — cannot pull image for ISO"
-            exit 1
-          fi
+          if [ -z "$QUAY_TOKEN" ]; then echo "⚠️ QUAY_TOKEN not set"; exit 1; fi
           echo "$QUAY_TOKEN" | sudo podman login quay.io -u "${{ secrets.QUAY_USERNAME }}" --password-stdin
 
-      - name: Pull image for Titanoboa
+      - name: Pull and Generate ISO
         run: |
-          IMG="${{ steps.registry.outputs.lowercase }}/${{ matrix.edition.name }}:latest"
-          echo "Pulling $IMG into podman storage..."
+          IMG="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.edition.name }}:latest"
+          echo "Pulling $IMG..."
           sudo podman pull "$IMG"
 
       - name: Generate ISO with Titanoboa
-        id: generate
         uses: ublue-os/titanoboa@main
         with:
-          image-ref: ${{ steps.registry.outputs.lowercase }}/${{ matrix.edition.name }}:latest
+          image-ref: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.edition.name }}:latest
           iso-dest: ${{ github.workspace }}/${{ matrix.edition.iso-label }}-${{ github.ref_name }}-amd64.iso
-
-      - name: Get ISO file size
-        id: size
-        run: |
-          FILE="${{ github.workspace }}/${{ matrix.edition.iso-label }}-${{ github.ref_name }}-amd64.iso"
-          SIZE=$(ls -lh "$FILE" | awk '{print $5}')
-          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
-          echo "file=$FILE" >> "$GITHUB_OUTPUT"
 
       - name: Generate checksum
         run: |
           set -eo pipefail
-          cd ${{ github.workspace }}
-          ISO_FILENAME="${{ matrix.edition.iso-label }}-${{ github.ref_name }}-amd64.iso"
-          if [ ! -f "$ISO_FILENAME" ]; then
-            echo "ERROR: ISO file not found: $ISO_FILENAME"
-            ls -la *.iso 2>/dev/null || echo "No ISO files found"
-            exit 1
-          fi
-          sha256sum "$ISO_FILENAME" | tee "CHECKSUM-${{ matrix.edition.iso-label }}.txt"
+          FILE="${{ matrix.edition.iso-label }}-${{ github.ref_name }}-amd64.iso"
+          if [ ! -f "$FILE" ]; then echo "ERROR: ISO not found"; ls -la *.iso; exit 1; fi
+          sha256sum "$FILE" | tee "CHECKSUM-${{ matrix.edition.iso-label }}.txt"
           if [ ! -s "CHECKSUM-${{ matrix.edition.iso-label }}.txt" ]; then
-            echo "ERROR: Checksum file is empty!"
-            exit 1
+            echo "ERROR: Checksum empty!"; exit 1
           fi
 
       - name: Upload ISO as artifact
@@ -180,61 +181,53 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-  # ── Job 3: Notify build status via email ──────────────────────────────────
+  # ── Job 3: Notification (schedule only) ───────────────────────────────────
   notify:
     if: always() && github.event_name == 'schedule'
     needs: [build-images, build-isos]
     runs-on: ubuntu-latest
     steps:
-      - name: Build email content
-        id: content
+      - name: Build notification
+        id: notify
         env:
-          IMAGES_STATUS: ${{ needs.build-images.result }}
-          ISO_STATUS: ${{ needs.build-isos.result }}
+          IMAGES: ${{ needs.build-images.result }}
+          ISOS: ${{ needs.build-isos.result }}
         run: |
-          if [[ "$IMAGES_STATUS" == "success" && "$ISO_STATUS" == "success" ]]; then
+          if [[ "$IMAGES" == "success" && "$ISOS" == "success" ]]; then
             echo "status=success" >> "$GITHUB_OUTPUT"
-            echo "title=✅ BamOS Build Thành Công" >> "$GITHUB_OUTPUT"
-            echo "msg=Chúc mừng! BamOS đã build và release thành công." >> "$GITHUB_OUTPUT"
-            echo "iso_success=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$IMAGES_STATUS" == "success" && "$ISO_STATUS" == "skipped" ]]; then
+            echo "subject=✅ BamOS Build Thành Công" >> "$GITHUB_OUTPUT"
+          elif [[ "$IMAGES" == "success" ]]; then
             echo "status=success" >> "$GITHUB_OUTPUT"
-            echo "title=✅ BamOS Images Build Thành Công" >> "$GITHUB_OUTPUT"
-            echo "msg=Images đã được push lên GHCR. ISO không được tạo (chỉ tạo theo lịch tuần)." >> "$GITHUB_OUTPUT"
+            echo "subject=✅ BamOS Images Built (ISO skipped)" >> "$GITHUB_OUTPUT"
           else
             echo "status=failure" >> "$GITHUB_OUTPUT"
-            echo "title=❌ BamOS Build Thất Bại" >> "$GITHUB_OUTPUT"
-            echo "msg=BamOS build gặp lỗi." >> "$GITHUB_OUTPUT"
+            echo "subject=❌ BamOS Build Thất Bại" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Send build summary email
+      - name: Send email
+        if: always()
         uses: dawidd6/action-send-mail@v4
         with:
           server_address: smtp.gmail.com
           server_port: 587
           username: ${{ secrets.GMAIL_USERNAME }}
           password: ${{ secrets.GMAIL_APP_PASSWORD }}
-          subject: ${{ steps.content.outputs.title }}
+          subject: ${{ steps.notify.outputs.subject }}
           to: quocnho@gmail.com
           from: BamOS CI
           body: |
-            ${{ steps.content.outputs.msg }}
+            📋 Chi tiết build:
+            - Images: ${{ needs.build-images.result }}
+            - ISOs: ${{ needs.build-isos.result }}
 
-            📋 Chi tiết:
-            - Images (GHCR): ${{ needs.build-images.result }}
-            - ISOs (R2 + Release): ${{ needs.build-isos.result }}
+            🔗 https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-            🔗 Commit: ${{ github.sha }}
-            🔗 Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            ${{ needs.build-isos.result == 'success' && format('📥 Tải ISOs:
-            - ☁️ Cloudflare R2: {0}
-            - 🐙 GitHub Releases: https://github.com/{1}/releases/tag/nightly-{2}', env.R2_PUBLIC_URL, github.repository, github.run_id) || '' }}
+            ${{ needs.build-isos.result == 'success' && '📥 Tải ISOs mới nhất: ${{ env.R2_PUBLIC_URL }}' || '' }}
 
             ---
-            BamOS CI - Build tự động
+            BamOS CI
 
-  # ── Job 4: Release to GitHub Releases + Cloudflare R2 ───────────────────
+  # ── Job 4: Release to GitHub Releases + R2 ───────────────────────────────
   release:
     if: always() && needs.build-isos.result == 'success'
     needs: build-isos
@@ -242,18 +235,17 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download all ISO artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: iso-artifacts
           merge-multiple: true
 
-      - name: Get ISO list with sizes
+      - name: List ISOs
         id: iso-info
         run: |
           echo "### Danh sách ISO" > /tmp/iso-list.txt
           echo "" >> /tmp/iso-list.txt
-          EDITIONS=()
           TOTAL=0
           for f in iso-artifacts/*.iso; do
             NAME=$(basename "$f" .iso)
@@ -261,15 +253,12 @@ jobs:
             BYTES=$(ls -l "$f" | awk '{print $5}')
             TOTAL=$((TOTAL + BYTES))
             echo "- **${NAME}** → ${SIZE}" >> /tmp/iso-list.txt
-            EDITIONS+=("$f")
           done
-          TOTAL_HR=$(numfmt --to=iec $TOTAL 2>/dev/null || echo "${TOTAL} bytes")
           echo "" >> /tmp/iso-list.txt
-          echo "**Tổng dung lượng: $TOTAL_HR**" >> /tmp/iso-list.txt
+          echo "**Tổng: $(numfmt --to=iec $TOTAL 2>/dev/null || echo "${TOTAL} bytes")**" >> /tmp/iso-list.txt
           echo "list<<EOF" >> "$GITHUB_OUTPUT"
           cat /tmp/iso-list.txt >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
-          echo "total=$TOTAL_HR" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -284,13 +273,11 @@ jobs:
             ### Danh sách ISO:
 
             ${{ steps.iso-info.outputs.list }}
-
-            > ⚠️ Nightly builds may contain unstable changes. Tổng dung lượng: ${{ steps.iso-info.outputs.total }}
           files: iso-artifacts/*
           prerelease: true
           make_latest: true
 
-      - name: Upload to Cloudflare R2
+      - name: Upload to R2 (new first, then delete old)
         id: r2-upload
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -304,31 +291,55 @@ jobs:
             secret_access_key $R2_SECRET_ACCESS_KEY \
             region auto \
             endpoint $R2_ENDPOINT
-          rclone delete r2:bamos-iso --include "*.iso" --verbose
-          rclone delete r2:bamos-iso --include "CHECKSUM-*.txt" --verbose 2>/dev/null || true
+          # Upload new ISOs FIRST, then delete old ones (no downtime)
           rclone copy iso-artifacts r2:bamos-iso --verbose
-          echo "All ISOs uploaded to Cloudflare R2."
-          echo "r2_public_url=${{ env.R2_PUBLIC_URL }}" >> "$GITHUB_OUTPUT"
+          rclone delete r2:bamos-iso --include "*.iso" --exclude "*-latest.iso" --verbose 2>/dev/null || true
+          rclone delete r2:bamos-iso --include "CHECKSUM-*.txt" --exclude "*-latest.txt" --verbose 2>/dev/null || true
 
-      - name: Create latest ISO aliases on R2
+      - name: Create stable download links on R2
         run: |
-          # Copy each ISO to a stable "latest" filename for direct download links
           for f in iso-artifacts/*.iso; do
             BASENAME=$(basename "$f" .iso)
-            EDITION=$(echo "$BASENAME" | sed 's/-nightly-.*//' | tr '[:upper:]' '[:lower:]')
-            LATEST_NAME="${EDITION}-latest.iso"
-            echo "Creating alias: $LATEST_NAME → $(basename $f)"
-            rclone copyto "$f" "r2:bamos-iso/$LATEST_NAME" --verbose
+            # Extract clean edition name: BamOS-KDE-main-amd64 → BamOS-KDE
+            EDITION=$(echo "$BASENAME" | sed -E 's/-(nightly-[0-9]+|main|develop|master)-amd64$//')
+            EDITION_LOWER=$(echo "$EDITION" | tr '[:upper:]' '[:lower:]')
+
+            echo "📦 Stable:  ${EDITION}.iso → $(basename $f)"
+            echo "📦 Latest:  ${EDITION_LOWER}-latest.iso → $(basename $f)"
+
+            # 1. Clean edition URL: https://dl.bamos.info/BamOS-KDE.iso
+            rclone copyto "$f" "r2:bamos-iso/${EDITION}.iso" --verbose
+
+            # 2. Latest alias: https://dl.bamos.info/bamos-kde-latest.iso
+            rclone copyto "$f" "r2:bamos-iso/${EDITION_LOWER}-latest.iso" --verbose
           done
-          # Also copy checksums
           for f in iso-artifacts/CHECKSUM-*.txt; do
             BASENAME=$(basename "$f" .txt)
-            LATEST_NAME="${BASENAME}-latest.txt"
-            rclone copyto "$f" "r2:bamos-iso/$LATEST_NAME" --verbose
-          done
-          echo "All latest aliases created."
+            EDITION=$(echo "$BASENAME" | sed -E 's/-(nightly-[0-9]+|main|develop|master)$//')
+            EDITION_LOWER=$(echo "$EDITION" | tr '[:upper:]' '[:lower:]')
 
-      - name: Send ISO release email (thành công)
+            rclone copyto "$f" "r2:bamos-iso/${EDITION}.txt" --verbose
+            rclone copyto "$f" "r2:bamos-iso/${EDITION_LOWER}-latest.txt" --verbose
+          done
+
+      - name: Print download URLs
+        run: |
+          echo ""
+          echo "╔══════════════════════════════════════╗"
+          echo "║   BamOS ISO Download URLs            ║"
+          echo "╚══════════════════════════════════════╝"
+          echo ""
+          echo "🔗 R2 Public:  ${{ env.R2_PUBLIC_URL }}"
+          echo ""
+          for f in iso-artifacts/*.iso; do
+            BASENAME=$(basename "$f" .iso)
+            EDITION=$(echo "$BASENAME" | sed -E 's/-(nightly-[0-9]+|main|develop|master)-amd64$//')
+            echo "  📥 ${{ env.R2_PUBLIC_URL }}/${EDITION}.iso"
+          done
+          echo ""
+          echo "🐙 GitHub Releases: https://github.com/${{ github.repository }}/releases/tag/nightly-${{ github.run_id }}"
+
+      - name: Send release email
         if: success()
         uses: dawidd6/action-send-mail@v4
         with:
@@ -340,67 +351,23 @@ jobs:
           to: quocnho@gmail.com
           from: BamOS CI
           body: |
-            🎉 Chúc mừng! BamOS đã build ISO thành công!
-
-            Dưới đây là danh sách các ISO và dung lượng:
+            🎉 BamOS ISOs ready!
 
             ${{ steps.iso-info.outputs.list }}
 
-            📥 Tải xuống:
-            - ☁️ Cloudflare R2: ${{ steps.r2-upload.outputs.r2_public_url }}
-            - 🐙 GitHub Releases: https://github.com/${{ github.repository }}/releases/tag/nightly-${{ github.run_id }}
-            - 📂 Tất cả Releases: https://github.com/${{ github.repository }}/releases
+            📥 Tải trực tiếp (luôn phiên bản mới nhất):
+            ${{ env.R2_PUBLIC_URL }}/BamOS-KDE.iso
+            ${{ env.R2_PUBLIC_URL }}/BamOS-KDE-NVIDIA.iso
+            ${{ env.R2_PUBLIC_URL }}/BamOS-GNOME.iso
+            ${{ env.R2_PUBLIC_URL }}/BamOS-GNOME-NVIDIA.iso
+            ${{ env.R2_PUBLIC_URL }}/BamOS-COSMIC.iso
+            ${{ env.R2_PUBLIC_URL }}/BamOS-COSMIC-NVIDIA.iso
 
-            🔗 Workflow: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            🐙 GitHub Releases:
+            https://github.com/${{ github.repository }}/releases/tag/nightly-${{ github.run_id }}
 
-            ---
-            BamOS CI - Build tự động
-
-  # ── Job 5: Notify failure (nếu có lỗi) ────────────────────────────────────
-  notify-failure:
-    if: failure()
-    needs: [build-images, build-isos, release]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Determine failure stage
-        id: stage
-        run: |
-          echo "### Build Images: ${{ needs.build-images.result }}" > /tmp/fail.txt
-          echo "### Build ISOs: ${{ needs.build-isos.result }}" >> /tmp/fail.txt
-          echo "### Release: ${{ needs.release.result }}" >> /tmp/fail.txt
-          echo "" >> /tmp/fail.txt
-
-          if [[ "${{ needs.build-images.result }}" != "success" ]]; then
-            echo "❌ Giai đoạn thất bại: **Build Images**" >> /tmp/fail.txt
-            echo "→ Kiểm tra log tại: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> /tmp/fail.txt
-          elif [[ "${{ needs.build-isos.result }}" != "success" ]]; then
-            echo "❌ Giai đoạn thất bại: **Build ISOs**" >> /tmp/fail.txt
-          elif [[ "${{ needs.release.result }}" != "success" ]]; then
-            echo "❌ Giai đoạn thất bại: **Release**" >> /tmp/fail.txt
-          fi
-
-          echo "info<<EOF" >> "$GITHUB_OUTPUT"
-          cat /tmp/fail.txt >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-
-      - name: Send failure email
-        uses: dawidd6/action-send-mail@v4
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.GMAIL_USERNAME }}
-          password: ${{ secrets.GMAIL_APP_PASSWORD }}
-          subject: "❌ BamOS Build Thất Bại"
-          to: quocnho@gmail.com
-          from: BamOS CI
-          body: |
-            ❌ BamOS build gặp lỗi!
-
-            ${{ steps.stage.outputs.info }}
-
-            🔗 Chi tiết: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            Hãy kiểm tra log để biết thêm thông tin.
+            🔗 Workflow:
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
             ---
             BamOS CI

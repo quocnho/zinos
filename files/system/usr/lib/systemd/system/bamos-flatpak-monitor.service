@@ -1,0 +1,5 @@
+[Unit]
+Description=BamOS Flatpak Install/Remove Notification
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/logger -t bamos-flatpak "Flatpak state changed — run flatpak update if needed"

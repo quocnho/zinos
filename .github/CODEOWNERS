@@ -1,0 +1,24 @@
+# BamOS CODEOWNERS — default reviewer
+# https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+* @quocnho
+
+# GitHub Actions workflows
+.github/ @quocnho
+
+# Build recipes
+/recipes/ @quocnho
+
+# Build scripts
+/files/scripts/ @quocnho
+
+# System configuration
+/files/system/ @quocnho
+
+# Edition-specific files
+/files/kde-system/ @quocnho
+/files/gnome-system/ @quocnho
+/files/cosmic-system/ @quocnho
+
+# Installer
+/files/installer/ @quocnho

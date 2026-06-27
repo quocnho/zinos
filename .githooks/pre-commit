@@ -1,0 +1,20 @@
+#!/bin/sh
+# BamOS pre-commit githook — runs shellcheck on changed scripts
+# Install: pre-commit install -c .pre-commit-config.yaml
+
+echo "Running BamOS pre-commit checks..."
+
+# Quick shellcheck on staged scripts
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep '\.sh$' || true)
+if [ -n "$staged" ]; then
+    for f in $staged; do
+        if [ -f "$f" ]; then
+            shellcheck --severity=warning "$f" || {
+                echo "❌ $f failed shellcheck. Fix errors or skip with: git commit --no-verify"
+                exit 1
+            }
+        fi
+    done
+fi
+
+echo "✅ BamOS pre-commit checks passed"

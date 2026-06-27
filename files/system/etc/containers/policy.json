@@ -1,12 +1,17 @@
 {
   "default": [
     {
-      "type": "reject"
+      "type": "insecureAcceptAnything"
     }
   ],
   "transports": {
     "docker": {
       "ghcr.io/quocnho": [
+        {
+          "type": "insecureAcceptAnything"
+        }
+      ],
+      "quay.io/quocnho": [
         {
           "type": "insecureAcceptAnything"
         }

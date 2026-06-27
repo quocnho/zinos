@@ -15,7 +15,7 @@ PROTECTED_FILE="$MANIFEST_DIR/protected-packages.txt"
 mkdir -p "$MANIFEST_DIR"
 
 echo "[bamos] Generating base package manifest..."
-rpm -qa --queryformat '%{NAME}\n' --qf '%{NAME}\n' | sort -u > "$MANIFEST_FILE"
+rpm -qa --qf '%{NAME}\n' | sort -u > "$MANIFEST_FILE"
 echo "[bamos] Base manifest: $(wc -l < "$MANIFEST_FILE") packages."
 
 # Also generate protected-packages.txt from the manifest if it doesn't exist

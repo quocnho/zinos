@@ -1,0 +1,6 @@
+[Unit]
+Description=BamOS Flatpak Monitor — triggers on flatpak install/remove
+[Path]
+PathModified=/var/lib/flatpak/app
+[Install]
+WantedBy=paths.target

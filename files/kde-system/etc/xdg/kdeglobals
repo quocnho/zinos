@@ -1,6 +1,44 @@
+# BamOS KDE — Default application settings
+# These are read by KDE Plasma at login and set sensible defaults.
+
 [General]
 XftAntialias=true
 XftHinting=1
 XftHintStyle=hintslight
 XftSubPixel=none
 font=Noto Sans,10,-1,5,50,0,0,0,0,0
+fixed=Hack,10,-1,5,50,0,0,0,0,0
+menuFont=Noto Sans,10,-1,5,50,0,0,0,0,0
+smallestReadableFont=Noto Sans,8,-1,5,50,0,0,0,0,0
+toolBarFont=Noto Sans,10,-1,5,50,0,0,0,0,0
+
+[Icons]
+Theme=breeze-dark
+
+[KDE]
+ColorScheme=BreezeDark
+widgetStyle=Breeze
+LookAndFeelPackage=org.kde.breezedark.desktop
+
+[KScreen]
+ScreenScaleFactors=1
+
+[KDE Wallet]
+Enabled=false
+First Use=false
+
+[Theme]
+name=Breeze
+
+[Compositing]
+Enabled=true
+OpenGLIsUnsafe=false
+
+[Windowing]
+FocusPolicy=ClickFocus
+
+[TabBox]
+LayoutName=compact
+
+[Notification Messages]
+LowJobLimit=300

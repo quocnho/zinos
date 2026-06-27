@@ -1,0 +1,14 @@
+[Unit]
+Description=BamOS First Boot Setup — installs packages + flatpaks
+After=bamos-overlay-mount.service network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/bamos/setup-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/bamos/bamos-firstboot-setup
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

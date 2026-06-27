@@ -1,0 +1,32 @@
+repos:
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        args: ["--severity=warning"]
+        files: \.(sh|bash)$
+        types: [shell]
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: ["-d", "{extends: relaxed, rules: {line-length: disable, document-start: disable}}"]
+        files: \.(yaml|yml)$
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.1
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        files: \.(sh|yml|yaml|md|json|txt)$
+      - id: end-of-file-fixer
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-executables-have-shebangs
+        files: \.(sh|bash)$
+      - id: check-merge-conflict

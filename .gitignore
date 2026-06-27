@@ -1,21 +1,28 @@
-*.iso
-*.iso-CHECKSUM
+# BamOS — root .gitignore
+
+# OS generated files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor
 *.swp
 *.swo
 *~
-*.pyc
-__pycache__/
 .vscode/
 .idea/
-*.log
+*.sublime-project
+*.sublime-workspace
 
-# Environment files (secrets)
+# Build artifacts
+*.iso
+*.rpm
+*.tar.gz
 .env
-.env.r2
-.env.*
 
-# Cosign private key (never commit)
-cosign.key
-cosign.private
-/.bluebuild-scripts_*
+# BlueBuild cache
+.bluebuild/

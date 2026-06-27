@@ -1,0 +1,9 @@
+# BamOS Default Flatpaks — installed system-wide on first boot
+# One app per line. Lines starting with # are ignored.
+# Edition-specific overrides can be placed at /etc/bamos/flatpaks.list
+
+org.mozilla.firefox
+org.gnome.Calculator
+org.gnome.Loupe
+org.kde.kcalc
+org.kde.okular

@@ -1,2 +1,2 @@
-SELINUX=permissive
+SELINUX=enforcing
 SELINUXTYPE=targeted

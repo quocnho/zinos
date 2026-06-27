@@ -2,7 +2,7 @@ name: bamos-gnome
 description: BamOS GNOME Edition — Clean, modern, productivity-focused
 
 base-image: ghcr.io/ublue-os/silverblue-main
-image-version: 44
+image-version: ${FEDORA_VERSION:-44}
 
 modules:
   - type: files
@@ -17,33 +17,17 @@ modules:
 
   - type: script
     scripts:
-      - 00-build-setup.sh
-
-  - type: dnf
-    remove:
-      packages:
-        - gnome-software-rpm-ostree
-        - gnome-tour
+      - 00-repos.sh
+      - 01-kernel.sh
+      - 02-packages.sh
+      - 03-nvidia.sh
 
   - type: script
     scripts:
-      - 01-install-packages.sh
+      - 10-de-packages.sh
 
   - type: script
     scripts:
-      - 02-post-build.sh
-
-  - type: default-flatpaks
-    configurations:
-      - scope: system
-        notify: true
-        install:
-          - org.mozilla.firefox
-          - org.gnome.Calculator
-          - org.gnome.Calendar
-          - org.gnome.Loupe
-          - org.gnome.TextEditor
-          - org.gnome.clocks
-      - scope: user
+      - 20-post-build.sh
 
   - type: signing

@@ -1,72 +1,105 @@
+# BamOS Gaming — customized Bazaar content.yaml
+# Based on Bazzite's curated app discovery philosophy
+# Only Flatpaks — safe, sandboxed, atomic-compatible
+
 rows:
   - sections:
-    - expand-horizontally: true
-      category:
-        title:
-          en: "Gaming"
-        subtitle:
-          en: "Native & emulated gaming"
-        appids:
-          - net.lutris.Lutris
-          - com.heroicgameslauncher.hgl
-          - org.prismlauncher.PrismLauncher
-          - net.retrodeck.retrodeck
-          - org.libretro.RetroArch
-          - org.DolphinEmu.dolphin-emu
-          - net.pcsx2.PCSX2
-          - net.rpcs3.RPCS3
+      - expand-horizontally: true
+        category:
+          title:
+            en: "🎮 Gaming"
+          subtitle:
+            en: "Native & emulated gaming"
+          appids:
+            - net.lutris.Lutris
+            - com.heroicgameslauncher.hgl
+            - org.prismlauncher.PrismLauncher
+            - net.retrodeck.retrodeck
+            - org.libretro.RetroArch
+            - org.DolphinEmu.dolphin-emu
+            - net.pcsx2.PCSX2
+            - net.rpcs3.RPCS3
+            - io.mgba.mGBA
+            - net.kuribo64.melonDS
+            - org.ppsspp.PPSSPP
+            - org.duckstation.DuckStation
+            - net.retrodeck.retrodeck
+            - com.github.Winetricks
+            - com.valvesoftware.Steam
 
   - sections:
-    - expand-horizontally: true
-      category:
-        title:
-          en: "Social & Communication"
-        subtitle:
-          en: "Stay connected"
-        appids:
-          - com.discordapp.Discord
-          - dev.vencord.Vesktop
-          - org.mozilla.Thunderbird
-          - com.slack.Slack
+      - expand-horizontally: true
+        category:
+          title:
+            en: "💬 Social & Communication"
+          subtitle:
+            en: "Stay connected"
+          appids:
+            - com.discordapp.Discord
+            - dev.vencord.Vesktop
+            - org.mozilla.Thunderbird
+            - com.slack.Slack
+            - com.microsoft.Teams
+            - us.zoom.Zoom
+            - org.telegram.desktop
+            - com.discordapp.DiscordCanary
 
   - sections:
-    - expand-horizontally: true
-      category:
-        title:
-          en: "Productivity"
-        subtitle:
-          en: "Get things done"
-        appids:
-          - org.libreoffice.LibreOffice
-          - org.gimp.GIMP
-          - org.inkscape.Inkscape
-          - org.blender.Blender
-          - md.obsidian.Obsidian
+      - expand-horizontally: true
+        category:
+          title:
+            en: "📝 Productivity"
+          subtitle:
+            en: "Get things done"
+          appids:
+            - org.libreoffice.LibreOffice
+            - org.gimp.GIMP
+            - org.inkscape.Inkscape
+            - org.blender.Blender
+            - md.obsidian.Obsidian
+            - org.onlyoffice.desktopeditors
+            - org.gnome.Builder
+            - com.visualstudio.code
+            - neovim.neovim
+            - org.gnome.World.PikaBackup
+            - org.remmina.Remmina
 
   - sections:
-    - expand-horizontally: true
-      category:
-        title:
-          en: "Media & Creativity"
-        subtitle:
-          en: "Music, video & art"
-        appids:
-          - org.videolan.VLC
-          - org.audacityteam.Audacity
-          - org.kde.krita
-          - org.gnome.Loupe
+      - expand-horizontally: true
+        category:
+          title:
+            en: "🎬 Media & Creativity"
+          subtitle:
+            en: "Music, video & art"
+          appids:
+            - org.videolan.VLC
+            - io.mpv.Mpv
+            - org.audacityteam.Audacity
+            - org.kde.krita
+            - org.gnome.Loupe
+            - com.obsproject.Studio
+            - org.gimp.GIMP
+            - fr.handbrake.ghb
+            - org.shotcut.Shotcut
+            - com.spotify.Client
+            - org.gnome.Cheese
 
   - sections:
-    - expand-horizontally: true
-      category:
-        title:
-          en: "Utilities"
-        subtitle:
-          en: "Essential tools"
-        appids:
-          - org.keepassxc.KeePassXC
-          - com.bitwarden.desktop
-          - org.qbittorrent.qBittorrent
-          - org.fedoraproject.MediaWriter
-          - it.mijorus.gearlever
-          - io.github.flattool.Ignition
+      - expand-horizontally: true
+        category:
+          title:
+            en: "🔧 Utilities"
+          subtitle:
+            en: "Essential tools"
+          appids:
+            - org.keepassxc.KeePassXC
+            - com.bitwarden.desktop
+            - org.qbittorrent.qBittorrent
+            - org.fedoraproject.MediaWriter
+            - it.mijorus.gearlever
+            - io.github.flattool.Ignition
+            - org.gnome.Extensions
+            - com.github.tchx84.Flatseal
+            - io.github.celluloid_player.Celluloid
+            - org.localsend.localsend_app
+            - im.riot.Riot

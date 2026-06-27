@@ -1,6 +1,16 @@
+# BamOS Dependabot — keep GitHub Actions up to date
+# https://docs.github.com/code-security/dependabot
+
 version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Asia/Ho_Chi_Minh"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "automated"

@@ -55,9 +55,8 @@ case "$COMMAND" in
             echo "ERROR: Cannot mount overlay. Try rebooting first."
             exit 1
         }
-        /usr/libexec/bamos/bamos-base-protect
-        /usr/libexec/bamos/bamos-overlay-sync
-        /usr/libexec/bamos/bamos-overlay-services
+        # First-boot setup handles base-protect + sync + services
+        /usr/libexec/bamos/bamos-firstboot-setup
         echo "Overlay setup complete."
         ;;
     setup-gaming)
@@ -65,6 +64,9 @@ case "$COMMAND" in
         ;;
     setup-virtualization)
         exec /usr/libexec/bamos/bamos-setup-virtualization
+        ;;
+    setup-studio)
+        exec /usr/libexec/bamos/bamos-setup-studio
         ;;
     help|--help|-h)
         echo "BamOS — System Management Tool"
@@ -81,6 +83,7 @@ case "$COMMAND" in
         echo "  bamos setup-overlay                Setup overlay on first boot"
         echo "  bamos setup-gaming                 Install gaming packages"
         echo "  bamos setup-virtualization         Install KVM/QEMU"
+        echo "  bamos setup-studio                 Install content creation tools"
         ;;
     *)
         if [[ -n "$COMMAND" ]]; then

@@ -18,12 +18,9 @@ MOUNT_POINT="/usr"
 STATE_FILE="/var/lib/bamos/overlay.state"
 
 # ── Check if already mounted ──────────────────────────────────────────────────
-if mountpoint -q "$MOUNT_POINT"; then
-    # Check if it's our overlay (not the base ostree mount)
-    if grep -q "overlay" /proc/mounts | grep -q "$MOUNT_POINT"; then
-        echo "[bamos] Overlay already mounted on $MOUNT_POINT"
-        exit 0
-    fi
+if mountpoint -q "$MOUNT_POINT" && grep -q "overlay.* /usr " /proc/mounts; then
+    echo "[bamos] Overlay already mounted on $MOUNT_POINT"
+    exit 0
 fi
 
 # ── Initialise overlay dirs ───────────────────────────────────────────────────

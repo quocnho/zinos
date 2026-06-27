@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# BamOS Gaming Setup
-# Installs gaming packages into the overlay.
+# BamOS Gaming Setup — based on Bazzite gaming configuration philosophy
+# Installs gaming packages into the persistent overlay.
 # Usage: sudo bamos setup-gaming
 #
-# IMPORTANT: This script runs on the INSTALLED SYSTEM (not during container build).
-# It installs packages into the persistent overlay on /usr.
+# Gaming philosophy:
+#   - Steam via RPM for native performance (not Flatpak)
+#   - Gamescope for Wayland gaming isolation
+#   - MangoHud + vkBasalt pre-configured
+#   - GameMode + ananicy + BORE for CPU/IO priority
+#   - Bluetooth controller fixes (UserspaceHID)
+#   - Input remapper for custom controller bindings
 
 set -euo pipefail
 
@@ -20,8 +25,9 @@ if ! mountpoint -q /usr; then
     exit 1
 fi
 
-# ── Install gaming RPMs ───────────────────────────────────────────────────────
-echo "▶ Installing gaming packages..."
+# ── Step 1: Core gaming RPMs ─────────────────────────────────────────────────
+echo ""
+echo "▶ Step 1/5: Installing core gaming packages..."
 dnf5.real install -y \
     steam \
     lutris \
@@ -31,13 +37,22 @@ dnf5.real install -y \
     protontricks \
     steam-devices \
     gamemode gamemode.i686 \
+    gamescope \
+    gamescope-libs gamescope-libs.i686 \
+    input-remapper \
+    vulkan-tools \
+    vulkan-low-latency-layer \
     2>&1 || {
-        echo "Some packages failed. Continuing with core gaming packages..."
-        dnf5.real install -y steam mangohud mangohud.i686 gamemode gamemode.i686 steam-devices 2>&1 || true
+        echo "Some packages unavailable. Installing core gaming essentials..."
+        dnf5.real install -y \
+            steam mangohud mangohud.i686 \
+            gamemode gamemode.i686 \
+            steam-devices gamescope 2>&1 || true
     }
 
-# ── Install gaming Flatpaks ───────────────────────────────────────────────────
-echo "▶ Installing gaming Flatpaks..."
+# ── Step 2: Gaming Flatpaks ──────────────────────────────────────────────────
+echo ""
+echo "▶ Step 2/5: Installing gaming Flatpaks..."
 flatpak install -y --noninteractive flathub \
     net.lutris.Lutris \
     com.heroicgameslauncher.hgl \
@@ -45,25 +60,66 @@ flatpak install -y --noninteractive flathub \
     org.prismlauncher.PrismLauncher \
     2>/dev/null || true
 
-# ── Configure gamemode ─────────────────────────────────────────────────────────
-echo "▶ Configuring gamemode..."
+# ── Step 3: GameMode configuration ───────────────────────────────────────────
+echo ""
+echo "▶ Step 3/5: Configuring GameMode..."
 mkdir -p /etc/gamemode
-cat > /etc/gamemode/gamemode.ini << 'EOF'
+if [[ ! -f /etc/gamemode/gamemode.ini ]]; then
+    cat > /etc/gamemode/gamemode.ini << 'EOF'
 [general]
 renice=10
 softrealtime=auto
 releasemem=enable
 desiredgov=performance
+ioprio=0
+inhibit-screensaver=auto
+[cpu]
+gov=performance
+energy_performance_preference=performance
+[gpu]
+apply_gpu_optimisations=accept-responsibility
+amd_performance_level=high
+nvidia_powermizer_level=1
 EOF
-
-# ── Enable gamemoded service ──────────────────────────────────────────────────
+fi
 systemctl enable gamemoded 2>/dev/null || true
+
+# ── Step 4: Bluetooth controller fixes ───────────────────────────────────────
+echo ""
+echo "▶ Step 4/5: Configuring Bluetooth for gaming controllers..."
+# UserspaceHID ensures Xbox/PS/Switch Pro controllers work via Bluetooth
+if grep -q "^#UserspaceHID" /etc/bluetooth/input.conf 2>/dev/null; then
+    sed -i 's/#UserspaceHID.*/UserspaceHID=true/' /etc/bluetooth/input.conf
+elif ! grep -q "^UserspaceHID" /etc/bluetooth/input.conf 2>/dev/null; then
+    echo "UserspaceHID=true" >> /etc/bluetooth/input.conf
+fi
+
+# Enable input-remapper for custom controller bindings
+systemctl enable input-remapper 2>/dev/null || true
+
+# ── Step 5: Install Winetricks (from upstream) ───────────────────────────────
+echo ""
+echo "▶ Step 5/5: Installing Winetricks..."
+if command -v curl &>/dev/null; then
+    curl -fsSL "https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks" \
+        -o /usr/bin/winetricks 2>/dev/null && \
+    chmod +x /usr/bin/winetricks && \
+    echo "Winetricks installed." || echo "Winetricks download failed (non-critical)."
+fi
 
 echo ""
 echo "✅ Gaming setup complete!"
 echo ""
-echo "Installed: steam, lutris, mangohud, gamemode, vkBasalt, protontricks"
-echo "Flatpaks:  Lutris, Heroic Games Launcher, Discord, Prism Launcher"
+echo "🎮 Installed:"
+echo "   Steam, Lutris, MangoHud, GameMode, Gamescope"
+echo "   vkBasalt, Protontricks, Input-Remapper"
 echo ""
-echo "  🎮 Run 'steam' to get started!"
-echo "  📊 Press Shift+F12 to toggle MangoHud in-game"
+echo "📊 Key shortcuts:"
+echo "   Shift+F12  — Toggle MangoHud overlay"
+echo "   Home       — Toggle vkBasalt (sharpening)"
+echo ""
+echo "🎯 Launch Steam with Gamescope:"
+echo "   gamescope -- steam"
+echo ""
+echo "📦 Gaming Flatpaks available:"
+echo "   Lutris, Heroic Games Launcher, Discord, Prism Launcher"

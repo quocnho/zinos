@@ -48,7 +48,7 @@ jobs:
           - bamos-cosmic.yml
           - bamos-cosmic-nvidia.yml
     steps:
-      - name: Build Custom Image
+      - name: Build Custom Image (local only, no push)
         id: build
         uses: blue-build/github-action@v1.11
         with:
@@ -60,23 +60,25 @@ jobs:
           registry_token: ${{ secrets.QUAY_TOKEN }}
           pr_event_number: ${{ github.event.number }}
           maximize_build_space: true
+          push: "false"
 
-      - name: Login to Quay.io (for re-tag push)
+      - name: Login to Quay.io
         env:
           QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
         run: |
           echo "$QUAY_TOKEN" | sudo podman login quay.io -u "${{ secrets.QUAY_USERNAME }}" --password-stdin
 
-      - name: Tag and push with short names (quay.io/quocnho/bamos:<edition>)
+      - name: Tag and push to Quay.io (quay.io/quocnho/bamos:<edition>)
         run: |
           RECIPE="${{ matrix.recipe }}"
           NAME="${RECIPE%.yml}"
           EDITION="${NAME#bamos-}"
-          SRC="quay.io/quocnho/${NAME}:latest"
-          DST="quay.io/quocnho/bamos:${EDITION}"
-          echo "Tagging: $SRC → $DST"
-          sudo podman tag "$SRC" "$DST"
-          sudo podman push "$DST"
+          IMAGE="quay.io/quocnho/bamos:${EDITION}"
+          echo "Tagging local image as $IMAGE..."
+          # BlueBuild tags locally as quay.io/quocnho/<name>:latest
+          sudo podman tag "quay.io/quocnho/${NAME}:latest" "$IMAGE"
+          echo "Pushing $IMAGE..."
+          sudo podman push "$IMAGE"
 
   # ── Job 2: Generate ISOs (weekly or manual) ─────────────────────────────────
   build-isos:
@@ -119,6 +121,13 @@ jobs:
         id: registry
         run: echo "lowercase=${IMAGE_REGISTRY,,}" >> "$GITHUB_OUTPUT"
 
+      - name: Derive edition tag (bamos-kde → kde)
+        id: edition
+        run: |
+          NAME="${{ matrix.edition.name }}"
+          TAG="${NAME#bamos-}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Login to Quay.io (podman)
         env:
           QUAY_TOKEN: ${{ secrets.QUAY_TOKEN }}
@@ -132,7 +141,7 @@ jobs:
 
       - name: Pull image for Titanoboa
         run: |
-          IMG="${{ steps.registry.outputs.lowercase }}/${{ matrix.edition.name }}:latest"
+          IMG="${{ steps.registry.outputs.lowercase }}/bamos:${{ steps.edition.outputs.tag }}"
           echo "Pulling $IMG into podman storage..."
           sudo podman pull "$IMG"
 
@@ -140,7 +149,7 @@ jobs:
         id: generate
         uses: ublue-os/titanoboa@main
         with:
-          image-ref: ${{ steps.registry.outputs.lowercase }}/${{ matrix.edition.name }}:latest
+          image-ref: ${{ steps.registry.outputs.lowercase }}/bamos:${{ steps.edition.outputs.tag }}
           iso-dest: ${{ github.workspace }}/${{ matrix.edition.iso-label }}-${{ github.ref_name }}-amd64.iso
 
       - name: Get ISO file size

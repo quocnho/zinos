@@ -25,7 +25,7 @@ concurrency:
 
 env:
   IMAGE_REGISTRY: quay.io/quocnho
-  R2_PUBLIC_URL: https://download.bamos.info # Custom domain
+  R2_PUBLIC_URL: https://dl.bamos.info
 
 jobs:
   # ── Job 1: Build & push 6 container images ───────────────────────────────────
